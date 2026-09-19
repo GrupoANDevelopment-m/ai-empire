@@ -1,0 +1,190 @@
+{
+  "name": "Empire Publish Multi-Canal",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{"field": "minutes", "minutesInterval": 5}]
+        }
+      },
+      "id": "trigger-1",
+      "name": "Schedule / Webhook",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "empire-publish",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-1",
+      "name": "Empire Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reformata conteúdo por canal\nconst input = $input.first().json;\nconst content = input.content;\nconst channels = input.channels || [];\n\nconst reformat = {\n  x: () => {\n    if (content.body.length <= 280) return { text: content.body };\n    const tweets = [];\n    const chunks = content.body.match(/.{1,270}(\\s|$)/g) || [];\n    chunks.forEach((c, i) => tweets.push(`${c.trim()} ${i+1}/${chunks.length}`));\n    return { thread: tweets };\n  },\n  linkedin: () => ({\n    text: content.body + '\\n\\n' + (content.tags || []).slice(0, 5).map(t => '#' + t).join(' ')\n  }),\n  instagram: () => ({\n    caption: content.body,\n    hashtags: (content.tags || []).slice(0, 10).map(t => '#' + t).join(' ')\n  }),\n  telegram: () => ({\n    text: `*${content.title}*\\n\\n${content.body}\\n\\n${content.source_url || ''}`\n  }),\n  reddit: () => ({\n    title: content.title,\n    body: content.body\n  }),\n  mastodon: () => ({\n    text: content.body.slice(0, 500)\n  })\n};\n\nconst results = {};\nchannels.forEach(ch => {\n  if (reformat[ch]) results[ch] = reformat[ch]();\n});\n\nreturn [{ json: { content, channels, per_channel: results } }];"
+      },
+      "id": "code-1",
+      "name": "Reformat per Channel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
+          "conditions": [
+            {
+              "id": "has-x",
+              "leftValue": "={{ $json.channels }}",
+              "rightValue": "x",
+              "operator": {"type": "array", "operation": "contains", "rightType": "value"}
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "if-x",
+      "name": "Has X?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
+          "conditions": [
+            {
+              "id": "has-li",
+              "leftValue": "={{ $json.channels }}",
+              "rightValue": "linkedin",
+              "operator": {"type": "array", "operation": "contains", "rightType": "value"}
+            }
+          ]
+        }
+      },
+      "id": "if-li",
+      "name": "Has LinkedIn?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.twitter.com/2/tweets",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Authorization", "value": "Bearer {{ $env.X_BEARER_TOKEN }}"},
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {"name": "text", "value": "={{ $json.per_channel.x.text }}"}
+          ]
+        }
+      },
+      "id": "x-post",
+      "name": "Post to X",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linkedin.com/v2/ugcPosts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Authorization", "value": "Bearer {{ $env.LINKEDIN_ACCESS_TOKEN }}"},
+            {"name": "Content-Type", "value": "application/json"},
+            {"name": "X-Restli-Protocol-Version", "value": "2.0.0"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"author\": \"urn:li:person:{{ $env.LINKEDIN_PERSON_ID }}\",\n  \"lifecycleState\": \"PUBLISHED\",\n  \"specificContent\": {\n    \"com.linkedin.ugc.ShareContent\": {\n      \"shareCommentary\": {\n        \"text\": \"{{ $json.per_channel.linkedin.text }}\"\n      },\n      \"shareMediaCategory\": \"NONE\"\n    }\n  },\n  \"visibility\": {\"com.linkedin.ugc.MemberNetworkVisibility\": \"PUBLIC\"}\n}"
+      },
+      "id": "li-post",
+      "name": "Post to LinkedIn",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v18.0/{{ $env.META_PAGE_ID }}/feed",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {"name": "message", "value": "={{ $json.per_channel.linkedin.text }}"},
+            {"name": "access_token", "value": "={{ $env.META_ACCESS_TOKEN }}"}
+          ]
+        }
+      },
+      "id": "fb-post",
+      "name": "Post to Facebook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 500]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {"name": "chat_id", "value": "={{ $env.TELEGRAM_CHAT_ID }}"},
+            {"name": "text", "value": "={{ $json.per_channel.telegram.text }}"},
+            {"name": "parse_mode", "value": "Markdown"}
+          ]
+        }
+      },
+      "id": "tg-post",
+      "name": "Post to Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 700]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://postgres:5432",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{"name": "sql", "value": "INSERT INTO content (id, kind, title, body, status, published_at, channels) VALUES (gen_random_uuid(), 'multi-post', '{{ $json.content.title }}', '{{ $json.content.body }}', 'published', NOW(), '{{ $json.channels }}') ON CONFLICT (id) DO NOTHING"}]
+        }
+      },
+      "id": "db-log",
+      "name": "Log to Postgres",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 400]
+    }
+  ],
+  "connections": {
+    "trigger-1": {"main": [[{"node": "Reformat per Channel", "type": "main", "index": 0}]]},
+    "webhook-1": {"main": [[{"node": "Reformat per Channel", "type": "main", "index": 0}]]},
+    "Reformat per Channel": {"main": [[{"node": "Has X?", "type": "main", "index": 0}, {"node": "Has LinkedIn?", "type": "main", "index": 0}, {"node": "Post to Facebook", "type": "main", "index": 0}, {"node": "Post to Telegram", "type": "main", "index": 0}]]},
+    "Has X?": {"main": [[{"node": "Post to X", "type": "main", "index": 0}]]},
+    "Has LinkedIn?": {"main": [[{"node": "Post to LinkedIn", "type": "main", "index": 0}]]},
+    "Post to X": {"main": [[{"node": "Log to Postgres", "type": "main", "index": 0}]]},
+    "Post to LinkedIn": {"main": [[{"node": "Log to Postgres", "type": "main", "index": 0}]]},
+    "Post to Facebook": {"main": [[{"node": "Log to Postgres", "type": "main", "index": 0}]]},
+    "Post to Telegram": {"main": [[{"node": "Log to Postgres", "type": "main", "index": 0}]]}
+  }
+}

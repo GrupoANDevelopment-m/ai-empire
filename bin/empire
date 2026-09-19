@@ -1,0 +1,198 @@
+#!/usr/bin/env python3
+"""
+AI Empire — single entry point.
+A real LLM agent, not a bot.
+"""
+from __future__ import annotations
+import sys
+import os
+import asyncio
+import subprocess
+import argparse
+import webbrowser
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+
+BANNER = r"""
+   ___   __  __ ___ ___   ___   __  __ ___
+  / _ \ |  \/  | __| _ \ |   \ |  \/  | __|
+ | (_) || |\/| | _||   / | |) || |\/| | _|
+  \___/ |_|  |_|___|_|_\ |___/ |_|  |_|___|
+
+👑 AI Empire — a real local AI agent
+"""
+
+
+def cmd_chat(args):
+    """Interactive REPL with the real LLM agent."""
+    from empire.agent.llm_agent import agent
+    print(BANNER)
+    print("Type what you want. I'm a real LLM agent — I think, then act.")
+    print("Try: 'find me 20 SaaS CTOs in Brazil' or 'test the circuit breaker'")
+    print("Commands: 'exit', 'clear' (reset memory), 'backend' (show which LLM)\n")
+    session = "cli"
+    while True:
+        try:
+            text = input("👑 > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nBye!")
+            return
+        if not text:
+            continue
+        if text.lower() in ("exit", "quit", "bye", "q"):
+            print("Bye! 👋")
+            return
+        if text.lower() == "clear":
+            agent.clear_session(session)
+            print("(memory cleared)\n")
+            continue
+        if text.lower() == "backend":
+            info = asyncio.run(agent.llm.detect())
+            print(f"Backend: {info}\n")
+            continue
+        # Real LLM call (with streaming)
+        print()
+        async def run():
+            async for chunk in agent.stream(text, session):
+                if chunk.get("type") == "text":
+                    print(chunk["content"], end="", flush=True)
+                elif chunk.get("type") == "tool_call":
+                    print(f"\n  🔧 {chunk['tool']}({chunk['args']})", flush=True)
+                elif chunk.get("type") == "tool_result":
+                    lines = chunk["result"].split("\n")
+                    preview = "\n  ".join(lines[:3])
+                    if len(lines) > 3:
+                        preview += f"\n  ... ({len(lines) - 3} more lines)"
+                    print(f"  ✓\n  {preview}", flush=True)
+                elif chunk.get("type") == "error":
+                    print(chunk["text"])
+                elif chunk.get("type") == "done":
+                    print()
+        asyncio.run(run())
+        print()
+
+
+def cmd_test(args):
+    """Run tests via natural language — no LLM needed for this."""
+    from empire.nl import NLTestRunner
+    if args.phrase:
+        text = "test " + " ".join(args.phrase)
+    else:
+        print("Usage: ./empire test <phrase>")
+        print("Examples:")
+        print("  ./empire test the circuit breaker")
+        print("  ./empire test self healing")
+        print("  ./empire test all")
+        return
+    runner = NLTestRunner()
+    result = asyncio.run(runner.run_from_text(text))
+    print(result["text"])
+
+
+def cmd_health(args):
+    """Quick health check."""
+    from empire.agent.llm.tools import health_check
+    print(asyncio.run(health_check()))
+
+
+def cmd_backend(args):
+    """Show which LLM backend is active."""
+    from empire.agent.llm_agent import agent
+    info = asyncio.run(agent.llm.detect())
+    print(f"Backend: {info}")
+    if not info.get("healthy"):
+        print("\nNo LLM reachable. To enable the agent:")
+        print("  1. Run ./install.sh (starts Ollama + pulls llama3.3)")
+        print("  2. Or set ANTHROPIC_API_KEY / OPENAI_API_KEY in .env")
+
+
+def cmd_start(args):
+    profile = args.profile or "core"
+    cmd = ["./scripts/start.sh"] + (profile.split() if profile != "all" else ["all"])
+    print(f"Starting: {profile}")
+    subprocess.run(cmd, cwd=ROOT)
+
+
+def cmd_stop(args):
+    subprocess.run(["./scripts/stop.sh"], cwd=ROOT)
+
+
+def cmd_ui(args):
+    print("Starting web UI on http://localhost:7777")
+    print("Press Ctrl+C to stop.")
+    script = ROOT / "web" / "server.py"
+    try:
+        subprocess.run([sys.executable, str(script)], cwd=str(ROOT / "web"))
+    except KeyboardInterrupt:
+        print("\nStopped.")
+
+
+def cmd_interactive(args):
+    print(BANNER)
+    print("What do you want to do?\n")
+    print("  1. 💬  Chat with the agent (recommended)")
+    print("  2. 🧪  Run tests in natural language")
+    print("  3. 🩺  Quick health check")
+    print("  4. 🔌  Show LLM backend status")
+    print("  5. 🚀  Start docker services")
+    print("  6. 🛑  Stop everything")
+    print("  7. 🌐  Open web UI")
+    print()
+    choice = input("Pick (1-7): ").strip()
+    actions = {
+        "1": cmd_chat,
+        "2": cmd_test,
+        "3": cmd_health,
+        "4": cmd_backend,
+        "5": cmd_start,
+        "6": cmd_stop,
+        "7": cmd_ui,
+    }
+    if choice == "5":
+        profile = input("Which profile? (core/agents/all/custom): ").strip() or "core"
+        cmd_start(argparse.Namespace(profile=profile))
+    elif choice in actions:
+        actions[choice](args)
+    else:
+        print("Invalid choice.")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="AI Empire — a real local AI agent")
+    sub = parser.add_subparsers(dest="cmd")
+
+    p_chat = sub.add_parser("chat", help="Chat with the agent")
+    p_chat.set_defaults(func=cmd_chat)
+
+    p_test = sub.add_parser("test", help="Run tests via natural language")
+    p_test.add_argument("phrase", nargs="*", help="What to test (e.g. 'the browser', 'all')")
+    p_test.set_defaults(func=cmd_test)
+
+    p_health = sub.add_parser("health", help="Health check")
+    p_health.set_defaults(func=cmd_health)
+
+    p_backend = sub.add_parser("backend", help="Show LLM backend")
+    p_backend.set_defaults(func=cmd_backend)
+
+    p_start = sub.add_parser("start", help="Start docker profiles")
+    p_start.add_argument("profile", nargs="?", help="Profile (core, agents, all, ...)")
+    p_start.set_defaults(func=cmd_start)
+
+    p_stop = sub.add_parser("stop", help="Stop everything")
+    p_stop.set_defaults(func=cmd_stop)
+
+    p_ui = sub.add_parser("ui", help="Open web UI")
+    p_ui.set_defaults(func=cmd_ui)
+
+    args = parser.parse_args()
+    if not args.cmd:
+        cmd_interactive(args)
+    else:
+        args.func(args)
+
+
+if __name__ == "__main__":
+    main()

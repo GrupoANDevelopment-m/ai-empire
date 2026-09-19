@@ -1,0 +1,741 @@
+# =============================================================================
+# AI EMPIRE — Master Stack
+# Plataforma local auto-suficiente de agentes de IA
+# =============================================================================
+# Profiles disponíveis (use --profile <nome> para ativar):
+#   - core       (default)  : Ollama, Postgres, Redis, Caddy — sempre ligado
+#   - agents               : LangGraph, Flowise, Open WebUI, Langfuse
+#   - browser              : browser-use, Playwright, Browserless
+#   - leads                : OpenOutreach, SalesGPT, Chatwoot, Dittofeed
+#   - design               : Penpot, ComfyUI, Fooocus, Open-Sora
+#   - video                : Whisper, TTS, Open-Sora, yt-dlp
+#   - data                 : SearXNG, Qdrant, Crawl4AI
+#   - crm                  : Twenty CRM, Baserow, Cal.com, Invoice Ninja
+#   - office               : Stirling-PDF, Gotenberg, OCR
+#
+# Exemplo:  docker compose --profile core --profile agents --profile design up -d
+# =============================================================================
+
+name: ai-empire
+
+x-common-env: &common-env
+  TZ: ${TZ:-Europe/Paris}
+  PUID: ${PUID:-1000}
+  PGID: ${PGID:-1000}
+
+x-restart: &restart
+  restart: unless-stopped
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  # ===========================================================================
+  # CORE: foundation services (always on)
+  # ===========================================================================
+  ollama:
+    <<: [*restart, *logging]
+    image: ollama/ollama:latest
+    container_name: ai-empire-ollama
+    profiles: [core]
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./config/ollama:/config
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_HOST=0.0.0.0:11434
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-all}
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks: [internal, external]
+
+  postgres:
+    <<: [*restart, *logging]
+    image: pgvector/pgvector:pg16
+    container_name: ai-empire-postgres
+    profiles: [core]
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-empire}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-empire_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_empire}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-empire}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  redis:
+    <<: [*restart, *logging]
+    image: redis:7-alpine
+    container_name: ai-empire-redis
+    profiles: [core]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  caddy:
+    <<: [*restart, *logging]
+    image: caddy:2-alpine
+    container_name: ai-empire-caddy
+    profiles: [core]
+    ports:
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./config/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [internal, external]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ===========================================================================
+  # AGENTS: orchestration layer
+  # ===========================================================================
+  langgraph-orchestrator:
+    <<: [*restart, *logging]
+    build:
+      context: ./orchestrator
+      dockerfile: Dockerfile
+    container_name: ai-empire-langgraph
+    profiles: [agents]
+    ports:
+      - "${LANGGRAPH_PORT:-8123}:8123"
+    volumes:
+      - ./orchestrator:/app
+      - shared_storage:/shared
+    environment:
+      <<: *common-env
+      DATABASE_URL: postgresql://${POSTGRES_USER:-empire}:${POSTGRES_PASSWORD:-empire_dev}@postgres:5432/ai_empire
+      REDIS_URL: redis://redis:6379/0
+      OLLAMA_BASE_URL: http://ollama:11434
+      LANGCHAIN_TRACING_V2: ${LANGCHAIN_TRACING:-false}
+      LANGFUSE_HOST: http://langfuse:3000
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      BROWSER_USE_API_KEY: ${BROWSER_USE_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    networks: [internal]
+
+  flowise:
+    <<: [*restart, *logging]
+    image: flowiseai/flowise:latest
+    container_name: ai-empire-flowise
+    profiles: [agents]
+    ports:
+      - "${FLOWISE_PORT:-3001}:3001"
+    volumes:
+      - flowise_data:/root/.flowise
+    environment:
+      FLOWISE_USERNAME: ${FLOWISE_USER:-admin}
+      FLOWISE_PASSWORD: ${FLOWISE_PASSWORD:-admin}
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  open-webui:
+    <<: [*restart, *logging]
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: ai-empire-open-webui
+    profiles: [agents]
+    ports:
+      - "${OPENWEBUI_PORT:-3000}:8080"
+    volumes:
+      - open_webui_data:/app/backend/data
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      WEBUI_AUTH: ${WEBUI_AUTH:-true}
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:-change-me-now}
+    networks: [internal]
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  langfuse:
+    <<: [*restart, *logging]
+    image: langfuse/langfuse:latest
+    container_name: ai-empire-langfuse
+    profiles: [agents]
+    ports:
+      - "${LANGFUSE_PORT:-3002}:3000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-empire}:${POSTGRES_PASSWORD:-empire_dev}@postgres:5432/langfuse
+      NEXTAUTH_SECRET: ${LANGFUSE_SECRET:-change-me-langfuse}
+      NEXTAUTH_URL: http://localhost:${LANGFUSE_PORT:-3002}
+      SALT: ${LANGFUSE_SALT:-salt-change-me}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
+  # ===========================================================================
+  # BROWSER: LLM-driven browser automation
+  # ===========================================================================
+  browser-use:
+    <<: [*restart, *logging]
+    build:
+      context: ./orchestrator
+      dockerfile: Dockerfile.browser
+    container_name: ai-empire-browser-use
+    profiles: [browser]
+    ports:
+      - "${BROWSER_USE_PORT:-8001}:8001"
+    volumes:
+      - browser_data:/app/data
+      - shared_storage:/shared
+    environment:
+      <<: *common-env
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OLLAMA_BASE_URL: http://ollama:11434
+      CHROME_PATH: /usr/bin/google-chrome
+    networks: [internal]
+
+  playwright:
+    <<: [*restart, *logging]
+    image: mcr.microsoft.com/playwright:v1.50.0-jammy
+    container_name: ai-empire-playwright
+    profiles: [browser]
+    volumes:
+      - browser_data:/ms-playwright
+    networks: [internal]
+
+  browserless:
+    <<: [*restart, *logging]
+    image: browserless/chromium:latest
+    container_name: ai-empire-browserless
+    profiles: [browser]
+    ports:
+      - "${BROWSERLESS_PORT:-3003}:3000"
+    environment:
+      MAX_CONCURRENT_SESSIONS: 10
+      PREBOOT_CHROME: true
+    networks: [internal]
+
+  # ===========================================================================
+  # LEADS: lead generation + outreach
+  # ===========================================================================
+  openoutreach:
+    <<: [*restart, *logging]
+    build:
+      context: ./orchestrator
+      dockerfile: Dockerfile.outreach
+    container_name: ai-empire-openoutreach
+    profiles: [leads]
+    ports:
+      - "${OPENOUTREACH_PORT:-8002}:8002"
+    volumes:
+      - outreach_data:/app/data
+    environment:
+      <<: *common-env
+      DATABASE_URL: postgresql://${POSTGRES_USER:-empire}:${POSTGRES_PASSWORD:-empire_dev}@postgres:5432/ai_empire
+      OLLAMA_BASE_URL: http://ollama:11434
+      LINKEDIN_EMAIL: ${LINKEDIN_EMAIL:-}
+      LINKEDIN_PASSWORD: ${LINKEDIN_PASSWORD:-}
+    networks: [internal]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  chatwoot:
+    <<: [*restart, *logging]
+    image: chatwoot/chatwoot:latest
+    container_name: ai-empire-chatwoot
+    profiles: [leads]
+    ports:
+      - "${CHATWOOT_PORT:-3004}:3000"
+    volumes:
+      - chatwoot_data:/app/storage
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_USERNAME: ${POSTGRES_USER:-empire}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-empire_dev}
+      REDIS_URL: redis://redis:6379
+      SECRET_KEY_BASE: ${CHATWOOT_SECRET:-change-me-chatwoot}
+      FRONTEND_URL: http://localhost:${CHATWOOT_PORT:-3004}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [internal]
+
+  dittofeed:
+    <<: [*restart, *logging]
+    image: dittofeed/dittofeed:latest
+    container_name: ai-empire-dittofeed
+    profiles: [leads]
+    ports:
+      - "${DITTOFEED_PORT:-3005}:3000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-empire}:${POSTGRES_PASSWORD:-empire_dev}@postgres:5432/ai_empire
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
+  # ===========================================================================
+  # DESIGN: open design + AI image/video gen
+  # ===========================================================================
+  penpot:
+    <<: [*restart, *logging]
+    image: penpot/penpot:latest
+    container_name: ai-empire-penpot
+    profiles: [design]
+    ports:
+      - "${PENPOT_PORT:-9001}:9001"
+    volumes:
+      - penpot_data:/home/penpot/data
+    environment:
+      PENPOT_FLAGS: -ppublicuri http://localhost:${PENPOT_PORT:-9001} -pdisable-registration
+    networks: [internal]
+
+  comfyui:
+    <<: [*restart, *logging]
+    image: yanwk/comfyui-boot:latest
+    container_name: ai-empire-comfyui
+    profiles: [design]
+    ports:
+      - "${COMFYUI_PORT:-8188}:8188"
+    volumes:
+      - comfyui_data:/root/ComfyUI
+      - ./assets/comfyui-workflows:/root/ComfyUI/workflows:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-all}
+              capabilities: [gpu]
+    networks: [internal]
+
+  fooocus:
+    <<: [*restart, *logging]
+    image: runpod/worker-comfyui:base
+    container_name: ai-empire-fooocus
+    profiles: [design]
+    ports:
+      - "${FOOOCUS_PORT:-7865}:7865"
+    volumes:
+      - fooocus_data:/app
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks: [internal]
+
+  inkscape:
+    <<: [*restart, *logging]
+    image: linuxserver/inkscape:latest
+    container_name: ai-empire-inkscape
+    profiles: [design]
+    ports:
+      - "${INKSCAPE_PORT:-3006}:3000"
+    volumes:
+      - design_assets:/config
+    networks: [internal]
+
+  gimp:
+    <<: [*restart, *logging]
+    image: linuxserver/gimp:latest
+    container_name: ai-empire-gimp
+    profiles: [design]
+    ports:
+      - "${GIMP_PORT:-3007}:3000"
+    volumes:
+      - design_assets:/config
+    networks: [internal]
+
+  krita:
+    <<: [*restart, *logging]
+    image: linuxserver/krita:latest
+    container_name: ai-empire-krita
+    profiles: [design]
+    ports:
+      - "${KRITA_PORT:-3008}:3000"
+    volumes:
+      - design_assets:/config
+    networks: [internal]
+
+  blender:
+    <<: [*restart, *logging]
+    image: linuxserver/blender:latest
+    container_name: ai-empire-blender
+    profiles: [design]
+    ports:
+      - "${BLENDER_PORT:-3009}:3000"
+    volumes:
+      - design_assets:/config
+    networks: [internal]
+
+  # ===========================================================================
+  # VIDEO: video gen + audio
+  # ===========================================================================
+  open-sora:
+    <<: [*restart, *logging]
+    build:
+      context: ./orchestrator
+      dockerfile: Dockerfile.sora
+    container_name: ai-empire-open-sora
+    profiles: [video]
+    ports:
+      - "${OPENSORA_PORT:-8003}:8003"
+    volumes:
+      - sora_data:/app/output
+      - sora_models:/app/models
+    environment:
+      <<: *common-env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks: [internal]
+
+  whisper:
+    <<: [*restart, *logging]
+    image: ghcr.io/ahmetoner/whisper-asr-webservice:latest
+    container_name: ai-empire-whisper
+    profiles: [video]
+    ports:
+      - "${WHISPER_PORT:=9000}:9000"
+    environment:
+      ASR_MODEL: base
+      ASR_ENGINE: openai_whisper
+    networks: [internal]
+
+  tts:
+    <<: [*restart, *logging]
+    image: ghcr.io/coqui/coqui-tts:latest
+    container_name: ai-empire-tts
+    profiles: [video]
+    ports:
+      - "${TTS_PORT:-8004}:8004"
+    networks: [internal]
+
+  # ===========================================================================
+  # DATA: search, scraping, vector DB
+  # ===========================================================================
+  searxng:
+    <<: [*restart, *logging]
+    image: searxng/searxng:latest
+    container_name: ai-empire-searxng
+    profiles: [data]
+    ports:
+      - "${SEARXNG_PORT:-8888}:8080"
+    volumes:
+      - searxng_data:/etc/searxng
+      - ./config/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    networks: [internal]
+
+  qdrant:
+    <<: [*restart, *logging]
+    image: qdrant/qdrant:latest
+    container_name: ai-empire-qdrant
+    profiles: [data]
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks: [internal]
+
+  crawl4ai:
+    <<: [*restart, *logging]
+    image: unclecode/crawl4ai:latest
+    container_name: ai-empire-crawl4ai
+    profiles: [data]
+    ports:
+      - "${CRAWL4AI_PORT:-8005}:8000"
+    networks: [internal]
+
+  # ===========================================================================
+  # CRM / business
+  # ===========================================================================
+  twenty-crm:
+    <<: [*restart, *logging]
+    image: twentycrm/twenty:latest
+    container_name: ai-empire-twenty-crm
+    profiles: [crm]
+    ports:
+      - "${TWENTY_PORT:-3010}:3000"
+    environment:
+      PG_DATABASE_URL: postgresql://${POSTGRES_USER:-empire}:${POSTGRES_PASSWORD:-empire_dev}@postgres:5432/twenty
+      APP_SECRET: ${TWENTY_SECRET:-change-me-twenty}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
+  baserow:
+    <<: [*restart, *logging]
+    image: baserow/baserow:latest
+    container_name: ai-empire-baserow
+    profiles: [crm]
+    ports:
+      - "${BASEROW_PORT:-3011}:80"
+    volumes:
+      - baserow_data:/baserow/data
+    environment:
+      SECRET_KEY: ${BASEROW_SECRET:-change-me-baserow}
+    networks: [internal]
+
+  calcom:
+    <<: [*restart, *logging]
+    image: calcom/cal.com:latest
+    container_name: ai-empire-calcom
+    profiles: [crm]
+    ports:
+      - "${CALCOM_PORT:-3012}:3000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-empire}:${POSTGRES_PASSWORD:-empire_dev}@postgres:5432/calcom
+      NEXTAUTH_SECRET: ${CALCOM_SECRET:-change-me-cal}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
+  invoice-ninja:
+    <<: [*restart, *logging]
+    image: invoiceninja/invoiceninja:latest
+    container_name: ai-empire-invoice-ninja
+    profiles: [crm]
+    ports:
+      - "${INVOICE_PORT:-3013}:80"
+    environment:
+      APP_URL: http://localhost:${INVOICE_PORT:-3013}
+      DB_HOST: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
+  # ===========================================================================
+  # WORKFLOW: n8n automation hub
+  # ===========================================================================
+  n8n:
+    <<: [*restart, *logging]
+    image: n8nio/n8n:latest
+    container_name: ai-empire-n8n
+    profiles: [core]
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/workflows:ro
+      - shared_storage:/shared
+    environment:
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://localhost:${N8N_PORT:-5678}/
+      GENERIC_TIMEZONE: ${TZ:-Europe/Paris}
+      N8N_BASIC_AUTH_ACTIVE: ${N8N_AUTH:-true}
+      N8N_BASIC_AUTH_USER: ${N8N_USER:-admin}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_PASSWORD:-admin}
+      OLLAMA_HOST: http://ollama:11434
+    networks: [internal, external]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ===========================================================================
+  # OFFICE: PDF, OCR, documents
+  # ===========================================================================
+  stirling-pdf:
+    <<: [*restart, *logging]
+    image: frooodle/s-pdf:latest
+    container_name: ai-empire-stirling-pdf
+    profiles: [office]
+    ports:
+      - "${STIRLING_PORT:-3014}:8080"
+    volumes:
+      - stirling_data:/usr/share/tessdata
+      - shared_storage:/shared
+    networks: [internal]
+
+  gotenberg:
+    <<: [*restart, *logging]
+    image: gotenberg/gotenberg:latest
+    container_name: ai-empire-gotenberg
+    profiles: [office]
+    ports:
+      - "${GOTENBERG_PORT:-3015}:3000"
+    networks: [internal]
+
+  # ===========================================================================
+  # WORKER: shared background workers
+  # ===========================================================================
+  # ===========================================================================
+  # GATEWAY: OmniRoute + LiteLLM (LLM routing, failover, multi-provider)
+  # ===========================================================================
+  omniroute:
+    <<: [*restart, *logging]
+    image: diegosouzapw/omniroute:latest
+    container_name: ai-empire-omniroute
+    profiles: [gateway]
+    ports:
+      - "${OMNIROUTE_PORT:-20128}:20128"
+    volumes:
+      - omniroute_data:/app/data
+    environment:
+      NODE_ENV: production
+      OMNIROUTE_PORT: 20128
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:20128/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks: [internal, external]
+
+  litellm-proxy:
+    <<: [*restart, *logging]
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: ai-empire-litellm
+    profiles: [gateway]
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
+    volumes:
+      - ./config/litellm:/app/config:ro
+      - litellm_data:/app/data
+    command: ["--config", "/app/config/config.yaml", "--port", "4000", "--num_workers", "4"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-empire}:${POSTGRES_PASSWORD:-empire_dev}@postgres:5432/ai_empire
+      REDIS_URL: redis://redis:6379
+      STORE_MODEL_IN_DB: "True"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OLLAMA_API_BASE: http://ollama:11434
+      MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-empire-change-me}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [internal]
+
+  watchtower:
+    <<: [*restart, *logging]
+    image: containrrr/watchtower
+    container_name: ai-empire-watchtower
+    profiles: [gateway]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_POLL_INTERVAL: 300
+      WATCHTOWER_LABEL_ENABLE: "true"
+    networks: [internal]
+
+  # ===========================================================================
+  # WORKER: shared background workers
+  # ===========================================================================
+  worker:
+    <<: [*restart, *logging]
+    build:
+      context: ./orchestrator
+      dockerfile: Dockerfile.worker
+    container_name: ai-empire-worker
+    profiles: [agents]
+    volumes:
+      - ./orchestrator:/app
+      - shared_storage:/shared
+    environment:
+      <<: *common-env
+      DATABASE_URL: postgresql://${POSTGRES_USER:-empire}:${POSTGRES_PASSWORD:-empire_dev}@postgres:5432/ai_empire
+      REDIS_URL: redis://redis:6379/0
+      OLLAMA_BASE_URL: http://ollama:11434
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [internal]
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  internal:
+    name: ai-empire-internal
+    driver: bridge
+  external:
+    name: ai-empire-external
+    driver: bridge
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  ollama_data:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
+  flowise_data:
+  open_webui_data:
+  browser_data:
+  outreach_data:
+  chatwoot_data:
+  penpot_data:
+  comfyui_data:
+  fooocus_data:
+  design_assets:
+  sora_data:
+  sora_models:
+  n8n_data:
+  stirling_data:
+  searxng_data:
+  qdrant_data:
+  baserow_data:
+  shared_storage:
+    name: ai-empire-shared
+  omniroute_data:
+  litellm_data:

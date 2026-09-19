@@ -1,0 +1,16 @@
+FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
+
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends git wget && rm -rf /var/lib/apt/lists/*
+
+# Open-Sora requirements (lightweight inference image)
+RUN pip install --no-cache-dir torch torchvision torchaudio
+RUN pip install --no-cache-dir diffusers transformers accelerate safetensors
+RUN pip install --no-cache-dir fastapi uvicorn[standard] pydantic httpx
+
+# Note: full Open-Sora build requires source clone. This image runs the inference via diffusers fallback.
+COPY . .
+
+EXPOSE 8003
+
+CMD ["python", "-m", "uvicorn", "sora_service:app", "--host", "0.0.0.0", "--port", "8003"]

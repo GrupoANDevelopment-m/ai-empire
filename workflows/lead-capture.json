@@ -1,0 +1,103 @@
+{
+  "name": "Empire Lead Capture",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "empire-lead",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook",
+      "name": "Lead Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza payload\nconst data = $input.first().json;\nconst lead = {\n  source: data.source || 'webhook',\n  name: data.name || data.full_name || '',\n  email: data.email || '',\n  phone: data.phone || data.telephone || '',\n  company: data.company || data.organization || '',\n  role: data.role || data.title || '',\n  linkedin_url: data.linkedin || data.linkedin_url || '',\n  website: data.website || data.url || '',\n  status: 'new',\n  score: 0,\n  metadata: { ...data, captured_at: new Date().toISOString() }\n};\nreturn [{ json: lead }];"
+      },
+      "id": "normalize",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://langgraph-orchestrator:8123/runs",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"thread_id\": \"lead-{{ $json.email }}\",\n  \"input\": {\n    \"goal\": \"qualify_lead\",\n    \"leads\": [{{ $json }}]\n  }\n}"
+      },
+      "id": "qualify",
+      "name": "Send to LangGraph (Qualify)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://chatwoot:3000/api/v1/accounts/1/conversations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "api_access_token", "value": "={{ $env.CHATWOOT_API_TOKEN }}"},
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"source_id\": \"empire-{{ $json.email }}\",\n  \"contact\": {\n    \"name\": \"{{ $json.name }}\",\n    \"email\": \"{{ $json.email }}\",\n    \"phone_number\": \"+{{ $json.phone }}\"\n  },\n  \"inbox_id\": 1,\n  \"status\": \"open\",\n  \"custom_attributes\": {\n    \"lead_score\": \"{{ $json.score }}\",\n    \"company\": \"{{ $json.company }}\"\n  }\n}"
+      },
+      "id": "chatwoot",
+      "name": "Open Chatwoot Conv",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://langgraph-orchestrator:8123/crews/outreach",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"leads\": [{{ $json }}],\n  \"channels\": [\"email\"]\n}"
+      },
+      "id": "outreach",
+      "name": "Trigger Outreach",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://hooks.slack.com/services/{{ $env.SLACK_WEBHOOK }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"🆕 New lead: *{{ $json.name }}* ({{ $json.email }}) from *{{ $json.company }}* — score: {{ $json.score }}\"\n}"
+      },
+      "id": "slack",
+      "name": "Notify Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 300]
+    }
+  ],
+  "connections": {
+    "Lead Webhook": {"main": [[{"node": "Normalize", "type": "main", "index": 0}]]},
+    "Normalize": {"main": [[{"node": "Send to LangGraph (Qualify)", "type": "main", "index": 0}]]},
+    "Send to LangGraph (Qualify)": {"main": [[{"node": "Open Chatwoot Conv", "type": "main", "index": 0}, {"node": "Trigger Outreach", "type": "main", "index": 0}]]},
+    "Open Chatwoot Conv": {"main": [[{"node": "Notify Slack", "type": "main", "index": 0}]]},
+    "Trigger Outreach": {"main": [[{"node": "Notify Slack", "type": "main", "index": 0}]]}
+  }
+}

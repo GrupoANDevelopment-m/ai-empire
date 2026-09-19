@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>👑 AI Empire</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0a14;
+    --panel: #14141f;
+    --border: #252535;
+    --text: #e4e4ef;
+    --muted: #8888a0;
+    --accent: #d4af37;
+    --accent-2: #b8941f;
+    --ok: #4ade80;
+    --err: #f87171;
+    --user: #3b82f6;
+    --tool: #a78bfa;
+  }
+  body {
+    font: 14px/1.5 -apple-system, system-ui, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: grid;
+    grid-template-columns: 280px 1fr;
+  }
+  aside {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 20px;
+    overflow-y: auto;
+  }
+  .logo {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 18px; font-weight: 700; color: var(--accent);
+    margin-bottom: 24px;
+  }
+  .logo-icon {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    border-radius: 8px; display: grid; place-items: center;
+    font-size: 18px;
+  }
+  .section { margin-bottom: 24px; }
+  .section h3 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); margin-bottom: 8px;
+  }
+  .skill {
+    padding: 8px 10px; border-radius: 6px; cursor: pointer;
+    font-size: 13px; display: flex; align-items: center; gap: 8px;
+  }
+  .skill:hover { background: var(--border); }
+  .skill-icon { font-size: 16px; }
+  .skill-name { flex: 1; }
+  main { display: flex; flex-direction: column; }
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { font-size: 16px; font-weight: 600; }
+  .status {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--muted);
+  }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted);
+  }
+  .status-dot.ok { background: var(--ok); }
+  .status-dot.err { background: var(--err); }
+  #messages {
+    flex: 1; overflow-y: auto;
+    padding: 24px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  .msg {
+    max-width: 720px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+  .msg.user {
+    align-self: flex-end;
+    background: var(--user);
+    color: white;
+  }
+  .msg.agent {
+    align-self: flex-start;
+    background: var(--panel);
+    border: 1px solid var(--border);
+  }
+  .msg.tool {
+    align-self: flex-start;
+    background: rgba(167, 139, 250, 0.08);
+    border: 1px solid var(--tool);
+    color: var(--text);
+    font-size: 13px;
+    max-width: 600px;
+  }
+  .msg.tool .label {
+    color: var(--tool); font-weight: 600; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .msg.tool pre {
+    background: var(--bg);
+    padding: 8px;
+    border-radius: 4px;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    margin-top: 6px;
+    white-space: pre-wrap;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .msg.error {
+    align-self: flex-start;
+    background: rgba(248, 113, 113, 0.08);
+    border: 1px solid var(--err);
+    color: var(--text);
+  }
+  footer {
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    padding: 16px 24px;
+  }
+  .input-row {
+    display: flex; gap: 8px;
+    max-width: 720px; margin: 0 auto;
+  }
+  #input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    color: var(--text);
+    font: inherit;
+    outline: none;
+  }
+  #input:focus { border-color: var(--accent); }
+  #send {
+    background: var(--accent);
+    color: #0a0a14;
+    border: none;
+    border-radius: 10px;
+    padding: 12px 20px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #send:hover { background: var(--accent-2); }
+  #send:disabled { opacity: 0.5; cursor: not-allowed; }
+  .examples {
+    max-width: 720px; margin: 8px auto 0;
+    color: var(--muted); font-size: 12px;
+  }
+  .examples span {
+    display: inline-block; margin: 4px 6px 0 0;
+    background: var(--bg); padding: 4px 10px; border-radius: 12px;
+    cursor: pointer; border: 1px solid var(--border);
+  }
+  .examples span:hover { background: var(--border); color: var(--text); }
+  @media (max-width: 768px) {
+    body { grid-template-columns: 1fr; }
+    aside { display: none; }
+  }
+</style>
+</head>
+<body>
+<aside>
+  <div class="logo">
+    <div class="logo-icon">👑</div>
+    <div>AI Empire</div>
+  </div>
+
+  <div class="section">
+    <h3>Quick actions</h3>
+    <div class="skill" data-send="find me 20 SaaS CTOs in Brazil">
+      <span class="skill-icon">🎯</span><span class="skill-name">Find leads</span>
+    </div>
+    <div class="skill" data-send="how is everything going">
+      <span class="skill-icon">🩺</span><span class="skill-name">Health check</span>
+    </div>
+    <div class="skill" data-send="run the circuit breaker tests">
+      <span class="skill-icon">🧪</span><span class="skill-name">Run tests</span>
+    </div>
+    <div class="skill" data-send="send a cold email to the first lead">
+      <span class="skill-icon">📧</span><span class="skill-name">Send outreach</span>
+    </div>
+    <div class="skill" data-send="what can you do?">
+      <span class="skill-icon">❓</span><span class="skill-name">Capabilities</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>The 8 tools I have</h3>
+    <div class="skill"><span class="skill-icon">🎯</span><span class="skill-name">find_leads</span></div>
+    <div class="skill"><span class="skill-icon">📧</span><span class="skill-name">send_outreach</span></div>
+    <div class="skill"><span class="skill-icon">🧪</span><span class="skill-name">run_tests</span></div>
+    <div class="skill"><span class="skill-icon">🩺</span><span class="skill-name">health_check</span></div>
+    <div class="skill"><span class="skill-icon">🎨</span><span class="skill-name">generate_image</span></div>
+    <div class="skill"><span class="skill-icon">🌐</span><span class="skill-name">navigate_browser</span></div>
+    <div class="skill"><span class="skill-icon">📢</span><span class="skill-name">publish_social</span></div>
+    <div class="skill"><span class="skill-icon">🎥</span><span class="skill-name">watch_video</span></div>
+  </div>
+
+  <div class="section">
+    <h3>How I work</h3>
+    <div style="font-size: 12px; color: var(--muted); line-height: 1.6;">
+      I'm a real LLM agent. I read your message, decide which tools to call,
+      run them, then write a natural answer. I remember the whole conversation.
+    </div>
+  </div>
+</aside>
+
+<main>
+  <header>
+    <h1>👑 AI Empire — real LLM agent</h1>
+    <div class="status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Connecting…</span>
+    </div>
+  </header>
+
+  <div id="messages"></div>
+
+  <footer>
+    <div class="input-row">
+      <input id="input" type="text" placeholder="Tell me what to do…" autofocus />
+      <button id="send">Send</button>
+    </div>
+    <div class="examples">
+      <span data-send="find 30 fintech CEOs in France">find 30 fintech CEOs in France</span>
+      <span data-send="send a cold email to the first lead">send a cold email to the first lead</span>
+      <span data-send="generate an Instagram post about AI agents">generate an Instagram post</span>
+      <span data-send="run the tests, please">run the tests</span>
+    </div>
+  </footer>
+</main>
+
+<script>
+  const messagesEl = document.getElementById("messages");
+  const inputEl = document.getElementById("input");
+  const sendBtn = document.getElementById("send");
+  const statusDot = document.getElementById("statusDot");
+  const statusText = document.getElementById("statusText");
+
+  let ws;
+  let threadId = "ws-" + Math.random().toString(36).slice(2, 9);
+  let currentAgentMsg = null;
+  let currentAgentText = "";
+
+  function connect() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    ws.onopen = () => {
+      statusDot.classList.remove("err");
+      statusDot.classList.add("ok");
+      statusText.textContent = "Connected to LLM";
+    };
+    ws.onclose = () => {
+      statusDot.classList.remove("ok");
+      statusDot.classList.add("err");
+      statusText.textContent = "Disconnected — retrying…";
+      setTimeout(connect, 2000);
+    };
+    ws.onerror = (e) => { console.error(e); };
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+      handleChunk(msg);
+    };
+  }
+
+  function handleChunk(msg) {
+    if (msg.type === "error") {
+      addMessage("error", msg.text);
+      return;
+    }
+    if (msg.type === "tool_call") {
+      addMessage("tool", `🔧 Calling ${msg.tool}`, JSON.stringify(msg.args, null, 2));
+      return;
+    }
+    if (msg.type === "tool_result") {
+      // Append result to the last tool message
+      const tools = messagesEl.querySelectorAll(".msg.tool");
+      if (tools.length) {
+        const last = tools[tools.length - 1];
+        const pre = last.querySelector("pre");
+        if (pre) {
+          pre.textContent = msg.result.length > 1000
+            ? msg.result.slice(0, 1000) + "\n…(truncated)"
+            : msg.result;
+        }
+      }
+      return;
+    }
+    if (msg.type === "text") {
+      if (!currentAgentMsg) {
+        currentAgentMsg = document.createElement("div");
+        currentAgentMsg.className = "msg agent";
+        messagesEl.appendChild(currentAgentMsg);
+      }
+      currentAgentText += msg.content;
+      currentAgentMsg.textContent = currentAgentText;
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      return;
+    }
+    if (msg.type === "done") {
+      currentAgentMsg = null;
+      currentAgentText = "";
+      if (msg.backend && !msg.backend.healthy) {
+        statusDot.classList.remove("ok");
+        statusDot.classList.add("err");
+        statusText.textContent = "No LLM — agent can't think";
+      } else {
+        statusText.textContent = "LLM: " + (msg.backend?.backend || "active");
+      }
+      return;
+    }
+  }
+
+  function addMessage(role, text, pre) {
+    const div = document.createElement("div");
+    div.className = "msg " + role;
+    if (role === "tool") {
+      const label = document.createElement("div");
+      label.className = "label";
+      label.textContent = text;
+      div.appendChild(label);
+      if (pre) {
+        const preEl = document.createElement("pre");
+        preEl.textContent = pre;
+        div.appendChild(preEl);
+      }
+    } else {
+      div.textContent = text;
+    }
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function send(text) {
+    if (!text.trim()) return;
+    if (!ws || ws.readyState !== 1) {
+      addMessage("error", "Not connected.");
+      return;
+    }
+    addMessage("user", text);
+    currentAgentMsg = null;
+    currentAgentText = "";
+    inputEl.value = "";
+    ws.send(JSON.stringify({text, thread_id: threadId}));
+  }
+
+  sendBtn.onclick = () => send(inputEl.value);
+  inputEl.onkeydown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send(inputEl.value);
+    }
+  };
+
+  document.querySelectorAll("[data-send]").forEach(el => {
+    el.onclick = () => send(el.dataset.send);
+  });
+
+  connect();
+
+  // Welcome
+  setTimeout(() => {
+    addMessage("agent",
+      "Hey! I'm a real LLM agent — not a bot. I read your message, " +
+      "decide what to do, call tools, and write a natural answer.\n\n" +
+      "Try:\n  • 'find 20 SaaS CTOs in Brazil'\n" +
+      "  • 'send a cold email to the first one'\n" +
+      "  • 'run the circuit breaker tests'\n  • 'what can you do?'"
+    );
+  }, 500);
+</script>
+</body>
+</html>
