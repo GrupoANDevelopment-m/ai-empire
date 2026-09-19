@@ -4,8 +4,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev curl && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+# crewai + crewai-tools already pinned in requirements.txt — no need to install twice
 RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir fastapi uvicorn[standard] httpx crewai crewai-tools
 
 COPY . .
 

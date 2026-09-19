@@ -4,8 +4,9 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev curl ffmpeg && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+# celery, redis and yt-dlp already pinned in requirements.txt — don't duplicate installs
 RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir celery redis yt-dlp
+RUN pip install --no-cache-dir celery
 
 COPY . .
 
