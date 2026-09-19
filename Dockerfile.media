@@ -1,0 +1,30 @@
+FROM python:3.11-slim
+
+# Honest tier-1 CPU media engine — no GPU required.
+# Inspired by Colibrì's multitier philosophy: small engine, big capabilities.
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg fonts-dejavu-core fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install Python deps
+RUN pip install --no-cache-dir \
+    fastapi \
+    uvicorn[standard] \
+    pillow \
+    safetensors \
+    httpx
+
+# Optional: install for tier-1 SD-CPU (slow but real). Uncomment to enable.
+# RUN pip install --no-cache-dir optimum onnxruntime diffusers transformers
+
+COPY scripts/media_engine.py /app/media_engine.py
+
+# Expose ComfyUI-compatible + Open-Sora-compatible endpoints
+COPY scripts/media_server.py /app/media_server.py
+
+EXPOSE 8189 8200
+
+CMD ["python3", "-m", "uvicorn", "media_server:app", "--host", "0.0.0.0", "--port", "8189"]

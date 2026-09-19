@@ -816,6 +816,32 @@ services:
       WATCHTOWER_LABEL_ENABLE: 'true'
     networks:
     - internal
+
+  # ============================================================================
+  # Honest tier-1 CPU engines — work without GPU, no Docker needed
+  # These run as a single Python service exposing ComfyUI-compatible + Sora-compatible APIs
+  # so the agent's tools work even when the GPU services are down.
+  # ============================================================================
+  media-engine:
+    logging: *id001
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile.media
+    container_name: ai-empire-media-engine
+    profiles:
+    - lite
+    - design
+    ports:
+    - "${MEDIA_ENGINE_PORT:-8189}:8189"  # ComfyUI-compatible
+    - "${MEDIA_VIDEO_PORT:-8200}:8200"   # Open-Sora-compatible
+    volumes:
+    - media_models:/opt/empire/models
+    - media_output:/tmp/empire_media
+    environment:
+      TIER1_MODEL_DIR: /opt/empire/models/sd15
+    networks:
+    - internal
   worker:
     logging: *id001
     restart: unless-stopped
@@ -875,3 +901,5 @@ volumes:
     name: ai-empire-shared
   omniroute_data: null
   litellm_data: null
+  media_models: null
+  media_output: null

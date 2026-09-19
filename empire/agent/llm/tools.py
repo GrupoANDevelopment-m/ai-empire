@@ -306,28 +306,61 @@ async def health_check() -> str:
 # ============================================================================
 async def generate_image(prompt: str, aspect_ratio: str = "1:1") -> str:
     """
-    Generate an image using ComfyUI (Stable Diffusion / FLUX).
-    Use when the user wants to "create", "generate", "make", "draw"
-    an image, picture, illustration, banner, thumbnail, etc.
+    Generate an image. Use when the user wants to "create", "generate",
+    "make", "draw" an image, picture, illustration, banner, thumbnail.
 
     Args:
         prompt: Description of the image (e.g. "minimalist SaaS dashboard illustration")
         aspect_ratio: "1:1" (square), "16:9" (landscape), "9:16" (vertical/Story), "4:5" (portrait)
 
-    Returns: Path to the generated image, or a status message.
+    Returns: Path to the generated image, with an honest note about which
+    tier produced it (T0 = real GPU model, T1 = quantized CPU model,
+    T2 = procedural CPU fallback).
+
+    Strategy: tries 3 tiers.
+      1. ComfyUI on :8188 (real FLUX/SD on GPU) — best quality, needs Docker + GPU
+      2. Stable Diffusion 1.5 ONNX int8 on CPU — slow but real, needs model download
+      3. PIL procedural gradient — always works, not a real AI image
     """
+    # Use the unified media engine (handles all tiers with honest reporting)
+    script = Path(__file__).parent.parent.parent / "scripts" / "media_engine.py"
+    if script.exists():
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["python3", str(script), "image", prompt, "--aspect", aspect_ratio],
+                capture_output=True, text=True, timeout=600,
+            )
+            if result.returncode == 0:
+                import json as _json
+                r = _json.loads(result.stdout)
+                tier = r.get("tier", "?")
+                model = r.get("model", "?")
+                took = r.get("took_sec", 0)
+                path = r.get("path", "")
+                note = r.get("note", "")
+                return (
+                    f"✅ Image generated [{tier}] in {took}s\n"
+                    f"   Model: {model}\n"
+                    f"   Path: {path}\n"
+                    f"   Prompt: {prompt}\n"
+                    f"   Note: {note}"
+                )
+        except Exception:
+            pass
+
+    # Last-resort direct fallback
     try:
-        async with httpx.AsyncClient(timeout=600) as client:
+        async with httpx.AsyncClient(timeout=10) as client:
             r = await client.post(
                 "http://localhost:8188/prompt",
                 json={"prompt": prompt, "aspect_ratio": aspect_ratio},
             )
             if r.status_code == 200:
                 data = r.json()
-                return f"✅ Image generated: {data.get('image_url', 'check ComfyUI output folder')}\nPrompt: {prompt}"
+                return f"✅ Image (ComfyUI): {data.get('image_url', 'check ComfyUI output folder')}\nPrompt: {prompt}"
     except Exception as e:
-        return f"❌ ComfyUI not reachable at localhost:8188 ({e}).\nStart it: docker compose --profile design up -d"
-    return "❌ ComfyUI returned an error."
+        return f"❌ No image engine available. Error: {e}\nStart ComfyUI: docker compose --profile design up -d (needs GPU)"
 
 
 # ============================================================================
