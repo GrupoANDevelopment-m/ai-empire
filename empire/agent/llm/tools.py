@@ -52,7 +52,7 @@ async def find_leads(goal: str, limit: int = 20, industry: str | None = None, ge
     # 2. Fall back to local Playwright + DDG (works without Docker)
     try:
         import subprocess
-        script = Path(__file__).parent.parent.parent / "scripts" / "real_leads.py"
+        script = Path(__file__).parent.parent.parent.parent / "scripts" / "real_leads.py"
         if script.exists():
             result = subprocess.run(
                 ["python3", str(script), goal, str(limit)],
@@ -323,7 +323,7 @@ async def generate_image(prompt: str, aspect_ratio: str = "1:1") -> str:
       3. PIL procedural gradient — always works, not a real AI image
     """
     # Use the unified media engine (handles all tiers with honest reporting)
-    script = Path(__file__).parent.parent.parent / "scripts" / "media_engine.py"
+    script = Path(__file__).parent.parent.parent.parent / "scripts" / "media_engine.py"
     if script.exists():
         try:
             import subprocess
@@ -420,7 +420,73 @@ async def publish_social(text: str, channels: list[str] | None = None) -> str:
 
 
 # ============================================================================
-# Tool 8: watch_video — research a video
+# Tool 8: generate_video — create a short video from text
+# ============================================================================
+async def generate_video(prompt: str, duration_seconds: int = 5,
+                         aspect_ratio: str = "16:9") -> str:
+    """
+    Generate a short video from a text prompt. Use when the user says
+    "make a video", "animate", "create a clip", "video of...".
+
+    Args:
+        prompt: Description of the video (e.g. "a cat walking in the rain")
+        duration_seconds: Target length in seconds (1-10)
+        aspect_ratio: "16:9" (landscape), "9:16" (vertical/Story), "1:1" (square)
+
+    Returns: Path to the generated video and an honest note about which
+    tier produced it.
+      T0 = Open-Sora 2.0 on GPU (best quality)
+      T1 = CogVideoX-2B INT8 on CPU (real AI, slow)
+      T2 = ffmpeg gradient procedural (always works, not real AI)
+    """
+    script = Path(__file__).parent.parent.parent.parent / "scripts" / "media_engine.py"
+    if script.exists():
+        try:
+            import subprocess, traceback
+            result = subprocess.run(
+                ["python3", str(script), "video", prompt,
+                 "--duration", str(duration_seconds),
+                 "--aspect", aspect_ratio],
+                capture_output=True, text=True, timeout=600,
+            )
+            if result.returncode == 0:
+                import json as _json
+                r = _json.loads(result.stdout)
+                tier = r.get("tier", "?")
+                model = r.get("model", "?")
+                took = r.get("took_sec", 0)
+                path = r.get("path", "")
+                note = r.get("note", "")
+                return (
+                    f"✅ Video generated [{tier}] in {took}s\n"
+                    f"   Model: {model}\n"
+                    f"   Path: {path}\n"
+                    f"   Prompt: {prompt}\n"
+                    f"   Note: {note}"
+                )
+            else:
+                return (
+                    f"❌ media_engine.py failed (rc={result.returncode})\n"
+                    f"   stderr: {result.stderr[:300]}\n"
+                    f"   stdout: {result.stdout[:300]}"
+                )
+        except Exception as e:
+            return (
+                f"❌ Subprocess failed: {type(e).__name__}: {e}\n"
+                f"   traceback: {traceback.format_exc()[:500]}"
+            )
+    return (
+        f"❌ media_engine.py not found at {script}. "
+        f"Options:\n"
+        f"  • T0 (best): docker compose --profile video up -d (needs GPU 24GB+)\n"
+        f"  • T1 (real AI on CPU): pip install diffusers torchao, "
+        f"download CogVideoX-2B to /opt/empire/models/cogvideox-2b\n"
+        f"  • T2 (always works): install ffmpeg"
+    )
+
+
+# ============================================================================
+# Tool 9: watch_video — research a video
 # ============================================================================
 async def watch_video(url: str) -> str:
     """
@@ -456,6 +522,7 @@ def tool_definitions() -> list[dict]:
     tools = [
         find_leads, send_outreach, run_tests, health_check,
         generate_image, navigate_browser, publish_social, watch_video,
+        generate_video,
     ]
     return [
         {
@@ -526,6 +593,7 @@ TOOL_FUNCTIONS = {
     "navigate_browser": navigate_browser,
     "publish_social": publish_social,
     "watch_video": watch_video,
+    "generate_video": generate_video,
 }
 
 

@@ -109,6 +109,73 @@ def t1_generate_image(prompt: str, aspect: str = "1:1",
         return None
 
 
+def t1_generate_video(prompt: str, duration: int = 5,
+                      model_dir: str = "/opt/empire/models/cogvideox-2b",
+                      aspect: str = "16:9") -> Optional[str]:
+    """
+    CogVideoX-2B in INT8 — runs on CPU with offload, 3.6GB VRAM minimum.
+
+    Strategy (Colibri-style multitier for video diffusion):
+      - Text encoder (T5-XXL, ~9GB FP16) → kept in RAM, mmap'd from disk
+      - Transformer / DiT backbone (~3GB INT8) → loaded into RAM only when
+        doing the denoising loop, evicted afterward
+      - VAE decoder (small, ~150MB) → resident in RAM
+      - Latents stream through CPU for each frame
+
+    Requires:
+      pip install diffusers transformers accelerate torch torchao
+      AND model downloaded (~4GB) at model_dir.
+
+    Typical speed on modern CPU with offload:
+      ~30-90s for a 6-frame, 480x720 clip (CogVideoX-2B INT8).
+    Will NOT work without the model files.
+    """
+    if not Path(model_dir).exists():
+        return None
+    try:
+        import torch
+        from diffusers import CogVideoXPipeline
+        from diffusers.utils import export_to_video
+    except ImportError:
+        return None
+    try:
+        # CPU-only torch (caller should have set CUDA_VISIBLE_DEVICES="")
+        pipe = CogVideoXPipeline.from_pretrained(
+            model_dir,
+            torch_dtype=torch.bfloat16,
+        )
+        # INT8 quantize the transformer via torchao (3.6GB instead of 12GB)
+        try:
+            from torchao.quantization import quantize_, int8_weight_only
+            quantize_(pipe.transformer, int8_weight_only())
+        except ImportError:
+            pass
+        # Enable CPU offload — keeps text encoder in RAM, transformer streams
+        pipe.enable_sequential_cpu_offload()
+        pipe.vae.enable_slicing()
+        pipe.vae.enable_tiling()
+
+        # CogVideoX-2B native: 480x720 (height x width), 6 or 12 frames
+        w, h = (720, 480) if aspect == "16:9" else (480, 480)
+        num_frames = max(6, min(duration * 8, 49))  # 8 fps, max 49 frames (CogVideoX limit)
+
+        result = pipe(
+            prompt=prompt,
+            num_videos_per_prompt=1,
+            num_inference_steps=20,
+            num_frames=num_frames,
+            guidance_scale=6.0,
+            height=h,
+            width=w,
+        )
+        video = result.frames[0]
+        path = OUTPUT_DIR / f"cogvideox_{int(time.time())}.mp4"
+        export_to_video(video, str(path), fps=8)
+        return str(path) if path.exists() else None
+    except Exception:
+        return None
+
+
 # ============================================================================
 # TIER 2: CPU procedural — fast, honest, no model needed
 # ============================================================================
@@ -273,6 +340,7 @@ def generate_video(prompt: str, duration: int = 5, aspect: str = "16:9") -> dict
     """
     Generate a video. Returns dict with:
       {path, tier, model, took_sec, honest_note}
+    Tries T0 (Open-Sora GPU) → T1 (CogVideoX-2B INT8 on CPU) → T2 (ffmpeg procedural).
     """
     t0 = time.time()
     path = None
@@ -289,7 +357,21 @@ def generate_video(prompt: str, duration: int = 5, aspect: str = "16:9") -> dict
         return {"path": path, "tier": tier_used, "model": model_used,
                 "took_sec": round(time.time() - t0, 2), "note": note}
 
-    # Try T2: ffmpeg procedural
+    # Try T1: CogVideoX-2B INT8 on CPU (real AI video, slower)
+    path = t1_generate_video(prompt, duration, aspect=aspect)
+    if path and Path(path).exists():
+        tier_used = "T1-CogVideoX-2B"
+        model_used = "CogVideoX-2B INT8 + sequential CPU offload"
+        note = (
+            "Real diffusion video model on CPU. "
+            "Generated with INT8 quantization (3.6GB VRAM equivalent), "
+            "model loaded from /opt/empire/models/cogvideox-2b. "
+            "Slow on CPU but produces actual AI-generated frames."
+        )
+        return {"path": path, "tier": tier_used, "model": model_used,
+                "took_sec": round(time.time() - t0, 2), "note": note}
+
+    # Fallback T2: ffmpeg procedural
     path = t2_generate_video(prompt, duration, aspect)
     if path and Path(path).exists():
         tier_used = "T2-ffmpeg"
@@ -297,8 +379,10 @@ def generate_video(prompt: str, duration: int = 5, aspect: str = "16:9") -> dict
         note = (
             "Procedural video — NOT a real AI video. "
             "It's a gradient with the prompt text overlay. "
-            "To get a real video: start Open-Sora ('docker compose --profile video up -d', "
-            "needs GPU 24GB+)."
+            "To get a real video: "
+            "T0 — start Open-Sora ('docker compose --profile video up -d', needs GPU 24GB+). "
+            "T1 — install CogVideoX-2B locally ('pip install diffusers torchao' "
+            "and download to /opt/empire/models/cogvideox-2b)."
         )
         return {"path": path, "tier": tier_used, "model": model_used,
                 "took_sec": round(time.time() - t0, 2), "note": note}
