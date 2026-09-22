@@ -1,0 +1,30 @@
+# AI Empire — master config (referenced by tools.py and install.sh)
+
+default_profile: "core+agents+browser+design"
+
+# Subset profiles for different machine sizes
+profiles:
+  tiny:    [core]
+  small:   [core, agents, browser]
+  medium:  [core, agents, browser, design, data]
+  large:   [core, agents, browser, design, data, video, leads, crm]
+  all:     [core, agents, browser, design, data, video, leads, crm, office, gateway]
+
+# Hardware gating — skip GPU services if no nvidia-smi
+hardware:
+  gpu_required_profiles: [design, video]
+  min_ram_gb_for_all: 32
+  recommend:
+    "4GB":  [core]
+    "8GB":  [core, agents, browser, lite]
+    "16GB": [core, agents, browser, design-lite, data]
+    "32GB+": [core, agents, browser, design, data, video]
+
+# Ports
+ports:
+  web_ui: 7777
+  agent_api: 8123
+  ollama: 11434
+  comfyui: 8188
+  media_engine: 8189
+  media_video: 8200

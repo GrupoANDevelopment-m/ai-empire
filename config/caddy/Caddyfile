@@ -1,0 +1,52 @@
+# AI Empire — Caddy reverse proxy
+# Auto-HTTPS via Let's Encrypt if a domain is configured.
+# Without a domain, runs plain HTTP on ports 80/443.
+
+# Default: forward everything to the hostnames defined inside the docker network.
+
+:80 {
+    # Health
+    reverse_proxy /health* caddy:80
+
+    # Core
+    reverse_proxy /ollama/* ollama:11434
+    reverse_proxy /n8n/* n8n:5678
+
+    # Agents
+    reverse_proxy /langgraph/* langgraph-orchestrator:8123
+    reverse_proxy /webui/* open-webui:8080
+    reverse_proxy /flowise/* flowise:3001
+
+    # Browser
+    reverse_proxy /browser/* browser-use:8001
+
+    # Leads
+    reverse_proxy /openoutreach/* openoutreach:8002
+    reverse_proxy /chatwoot/* chatwoot:3000
+
+    # Media
+    reverse_proxy /comfyui/* comfyui:8188
+    reverse_proxy /media/* media-engine:8189
+    reverse_proxy /video/* media-engine:8200
+
+    # Office
+    reverse_proxy /stirling/* stirling-pdf:8080
+    reverse_proxy /gotenberg/* gotenberg:3000
+
+    # CRM
+    reverse_proxy /baserow/* baserow:80
+    reverse_proxy /calcom/* calcom:3000
+
+    # Data
+    reverse_proxy /qdrant/* qdrant:6333
+    reverse_proxy /searxng/* searxng:8080
+
+    # Gateway
+    reverse_proxy /litellm/* litellm-proxy:4000
+    reverse_proxy /omniroute/* omniroute:20128
+
+    log {
+        output stdout
+        format console
+    }
+}

@@ -407,7 +407,7 @@ services:
   fooocus:
     logging: *id001
     restart: unless-stopped
-    image: runpod/worker-comfyui:base
+    image: ghcr.io/lllyasviel/fooocus_api:latest
     container_name: ai-empire-fooocus
     profiles:
     - design
@@ -530,7 +530,9 @@ services:
   tts:
     logging: *id001
     restart: unless-stopped
-    image: ghcr.io/coqui/coqui-tts:latest
+    # Coqui TTS archived — using rhasspy/larynx as replacement
+    # image: ghcr.io/coqui/coqui-tts:latest
+    image: rhasspy/larynx:latest
     container_name: ai-empire-tts
     profiles:
     - video
