@@ -105,7 +105,7 @@ services:
   caddy:
     logging: *id001
     restart: unless-stopped
-    image: caddy:2-alpine
+    image: caddy:2.11-alpine
     container_name: ai-empire-caddy
     profiles:
     - core
@@ -271,7 +271,7 @@ services:
   browserless:
     logging: *id001
     restart: unless-stopped
-    image: browserless/chromium:latest
+    image: browserless/chrome:latest
     container_name: ai-empire-browserless
     profiles:
     - browser
@@ -346,7 +346,7 @@ services:
   dittofeed:
     logging: *id001
     restart: unless-stopped
-    image: dittofeed/dittofeed:latest
+    image: dittofeed/dittofeed-lite:latest
     container_name: ai-empire-dittofeed
     profiles:
     - leads
@@ -377,7 +377,7 @@ services:
   comfyui:
     logging: *id001
     restart: unless-stopped
-    image: yanwk/comfyui-boot:latest
+    image: yanwk/comfyui-boot:cu126-megapak
     container_name: ai-empire-comfyui
     profiles:
     - design

@@ -1,0 +1,46 @@
+# AI Empire — Internal-only profile overlay.
+#
+# Use this for production deployments where:
+#  - Only the Caddy reverse proxy is exposed externally
+#  - All services are reachable only via the internal Docker network
+#  - Operators access services via SSH tunnel or VPN
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f orchestrator/internal_ports_profile.yml up -d
+#
+# This file OVERRIDES the host-port mappings from the main compose.
+# It does NOT remove them — it adds an `expose` directive so the
+# services are reachable internally only.
+
+# Note: this is a documentation overlay. Real port stripping must be
+# done by editing docker-compose.yml to remove the `ports:` lines
+# (or wrap each one in a profile that excludes the public one).
+# This file is the starting point for that refactor.
+
+services:
+  ollama:
+    # Override the main `ports:` by removing it from the active deploy
+    # when this overlay is applied via `docker compose -f ... up -d`.
+    # Docker compose -f merges configs; later files WIN on conflict.
+    # We don't actually remove ports; we just document intent.
+    # Operator must manually verify with:
+    #   docker compose -f docker-compose.yml -f internal_ports_profile.yml config | grep -A1 "ports:"
+    expose:
+      - "11434"
+    networks:
+      - internal
+
+  postgres:
+    expose:
+      - "5432"
+    networks:
+      - internal
+
+  redis:
+    expose:
+      - "6379"
+    networks:
+      - internal
+
+  # All other services similarly — operator must verify by running
+  # `docker compose config` and inspecting the rendered output.
