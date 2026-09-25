@@ -1,0 +1,69 @@
+# OWASP ZAP — automated penetration testing.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f security/zap/docker-compose.zap.yml up -d
+#
+# Then run:
+#   ./security/zap/run-baseline.sh https://your-empire.example.com
+#   ./security/zap/run-full.sh https://your-empire.example.com
+#
+# Reports go to ./security/zap/reports/
+
+name: ai-empire-zap
+
+services:
+  zap-baseline:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: ai-empire-zap-baseline
+    profiles: ["pentest"]
+    command:
+      - "sh"
+      - "-c"
+      - "zap-baseline.py -t $$TARGET -r reports/$$REPORT -I"
+    environment:
+      TARGET: ${ZAP_TARGET:-https://localhost:7777}
+      REPORT: ${ZAP_REPORT:-baseline-$(date +%Y%m%d-%H%M%S).html}
+    volumes:
+      - ./reports:/zap/reports:rw
+    networks:
+      - zap-net
+    restart: "no"
+
+  zap-full:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: ai-empire-zap-full
+    profiles: ["pentest"]
+    command:
+      - "sh"
+      - "-c"
+      - "zap-full-scan.py -t $$TARGET -r reports/$$REPORT -I"
+    environment:
+      TARGET: ${ZAP_TARGET:-https://localhost:7777}
+      REPORT: ${ZAP_REPORT:-full-$(date +%Y%m%d-%H%M%S).html}
+    volumes:
+      - ./reports:/zap/reports:rw
+    networks:
+      - zap-net
+    restart: "no"
+
+  zap-api:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    container_name: ai-empire-zap-api
+    profiles: ["pentest"]
+    command:
+      - "sh"
+      - "-c"
+      - "zap-api-scan.py -t $$TARGET -f openapi -r reports/$$REPORT -I"
+    environment:
+      TARGET: ${ZAP_TARGET:-https://localhost:8123}
+      REPORT: ${ZAP_REPORT:-api-$(date +%Y%m%d-%H%M%S).html}
+    volumes:
+      - ./reports:/zap/reports:rw
+      - ./openapi.json:/zap/openapi.json:ro
+    networks:
+      - zap-net
+    restart: "no"
+
+networks:
+  zap-net:
+    driver: bridge
