@@ -1,0 +1,102 @@
+{
+  "title": "AI Empire — Overview",
+  "uid": "empire-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "tags": ["empire", "overview"],
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP Requests/sec by Status",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [{
+        "expr": "sum(rate(empire_http_requests_total[1m])) by (status)",
+        "legendFormat": "{{status}}",
+        "refId": "A"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "Error Rate %",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0},
+      "targets": [{
+        "expr": "sum(rate(empire_http_requests_total{status=~\"5..\"}[5m])) / sum(rate(empire_http_requests_total[5m])) * 100",
+        "refId": "A"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 5}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "P99 Latency by Tool",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [{
+        "expr": "histogram_quantile(0.99, sum(rate(empire_tool_duration_ms_bucket[5m])) by (le, tool))",
+        "legendFormat": "{{tool}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "ms"}}
+    },
+    {
+      "id": 4,
+      "title": "Active Sessions",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 8},
+      "targets": [{"expr": "sum(empire_sessions_active)", "refId": "A"}]
+    },
+    {
+      "id": 5,
+      "title": "Pending HITL Approvals",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 8},
+      "targets": [{"expr": "sum(empire_hitl_pending)", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 5},
+              {"color": "red", "value": 20}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "LLM Cost (last 24h, $)",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 12},
+      "targets": [{
+        "expr": "sum(increase(empire_llm_cost_usd_total[24h]))",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    },
+    {
+      "id": 7,
+      "title": "Top Errors (logs)",
+      "type": "logs",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+      "targets": [{
+        "expr": "{job=\"docker\"} |= \"ERROR\" | logfmt | stats count by container_name",
+        "refId": "A"
+      }]
+    }
+  ]
+}

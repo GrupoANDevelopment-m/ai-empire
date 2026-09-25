@@ -1,0 +1,57 @@
+{
+  "title": "AI Empire — LLM Cost",
+  "uid": "empire-llm-cost",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "tags": ["empire", "cost", "llm"],
+  "time": {"from": "now-7d", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Daily Spend by Model",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [{
+        "expr": "sum by (model) (increase(empire_llm_cost_usd_total[1d]))",
+        "legendFormat": "{{model}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    },
+    {
+      "id": 2,
+      "title": "Daily Spend by Tenant",
+      "type": "piechart",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [{
+        "expr": "sum by (tenant) (increase(empire_llm_cost_usd_total[1d]))",
+        "legendFormat": "{{tenant}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    },
+    {
+      "id": 3,
+      "title": "Tokens per Hour (prompt vs completion)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "targets": [
+        {"expr": "sum(rate(empire_llm_prompt_tokens_total[1h]))", "legendFormat": "prompt", "refId": "A"},
+        {"expr": "sum(rate(empire_llm_completion_tokens_total[1h]))", "legendFormat": "completion", "refId": "B"}
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Cost per 1K tokens by Model",
+      "type": "barchart",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
+      "targets": [{
+        "expr": "sum(rate(empire_llm_cost_usd_total[1h])) by (model) / (sum(rate(empire_llm_total_tokens_total[1h])) by (model) / 1000)",
+        "legendFormat": "{{model}}",
+        "refId": "A"
+      }],
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}}
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+# Alertmanager — routes alerts from Prometheus to PagerDuty / Slack / email
+
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'team', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'default'
+  routes:
+    # Critical → page on-call
+    - match:
+        severity: critical
+      receiver: pagerduty
+      group_wait: 10s
+      repeat_interval: 1h
+      continue: true
+
+    # Warnings → Slack + email
+    - match:
+        severity: warning
+      receiver: slack
+      group_wait: 1m
+      repeat_interval: 4h
+      continue: true
+
+receivers:
+  - name: 'default'
+    webhook_configs:
+      - url: 'http://localhost:5001/alerts'
+
+  - name: 'pagerduty'
+    pagerduty_configs:
+      - routing_key: ${PAGERDUTY_ROUTING_KEY}
+        send_resolved: true
+        description: '{{ .GroupLabels.alertname }} — {{ .CommonAnnotations.summary }}'
+
+  - name: 'slack'
+    slack_configs:
+      - api_url: ${SLACK_WEBHOOK_URL}
+        channel: '#empire-alerts'
+        send_resolved: true
+        title: '{{ .GroupLabels.alertname }} ({{ .GroupLabels.severity }})'
+        text: '{{ .CommonAnnotations.description }}'
+
+inhibit_rules:
+  # Don't page for warning if critical already firing
+  - source_match:
+      severity: critical
+    target_match:
+      severity: warning
+    equal: ['alertname']

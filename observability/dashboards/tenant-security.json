@@ -1,0 +1,56 @@
+{
+  "title": "AI Empire — Tenant Isolation",
+  "uid": "empire-tenant-security",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "tags": ["empire", "security", "tenant"],
+  "time": {"from": "now-24h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Tenant Violations (Critical)",
+      "type": "timeseries",
+      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 0},
+      "targets": [{
+        "expr": "sum(rate(empire_tenant_violations_total[5m])) by (actor, target_tenant)",
+        "legendFormat": "{{actor}} → {{target_tenant}}",
+        "refId": "A"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "Auth Failures by Reason",
+      "type": "timeseries",
+      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 0},
+      "targets": [{
+        "expr": "sum(rate(empire_auth_failures_total[5m])) by (reason)",
+        "legendFormat": "{{reason}}",
+        "refId": "A"
+      }]
+    },
+    {
+      "id": 3,
+      "title": "PII Redactions (audit log entries redacted)",
+      "type": "timeseries",
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 6},
+      "targets": [{
+        "expr": "sum(rate(empire_pii_redactions_total[5m])) by (pattern)",
+        "legendFormat": "{{pattern}}",
+        "refId": "A"
+      }]
+    },
+    {
+      "id": 4,
+      "title": "Top Audit Actions (last hour)",
+      "type": "table",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
+      "targets": [{
+        "expr": "topk(10, sum by (actor, action) (rate(empire_audit_actions_total[1h])))",
+        "format": "table",
+        "instant": true,
+        "refId": "A"
+      }]
+    }
+  ]
+}

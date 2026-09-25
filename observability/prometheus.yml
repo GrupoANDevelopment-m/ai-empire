@@ -1,0 +1,65 @@
+# Prometheus configuration for AI Empire
+# Scrapes metrics from agent, LLM clients, OTEL collector, and nodes.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: ai-empire
+    env: production
+
+rule_files:
+  - "alerts.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+  # The agent itself exposes metrics via OTEL collector
+  - job_name: otel-collector
+    static_configs:
+      - targets: ['otel-collector:8889']
+
+  # Prometheus itself
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Tempo metrics
+  - job_name: tempo
+    static_configs:
+      - targets: ['tempo:3200']
+
+  # LangGraph orchestrator metrics
+  - job_name: langgraph
+    static_configs:
+      - targets: ['langgraph-orchestrator:8123']
+    metrics_path: /metrics
+
+  # Ollama metrics
+  - job_name: ollama
+    static_configs:
+      - targets: ['ollama:11434']
+    metrics_path: /api/metrics
+
+  # Postgres exporter
+  - job_name: postgres
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  # Redis exporter
+  - job_name: redis
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  # n8n metrics
+  - job_name: n8n
+    static_configs:
+      - targets: ['n8n:5678']
+
+  # Node-level (if node-exporter is running)
+  - job_name: node
+    static_configs:
+      - targets: ['node-exporter:9100']

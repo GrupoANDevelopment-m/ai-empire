@@ -1,0 +1,135 @@
+# Prometheus alerting rules for AI Empire.
+# PagerDuty / Slack integration via Alertmanager (alertmanager.yml).
+
+groups:
+  - name: empire-availability
+    interval: 30s
+    rules:
+      - alert: EmpireHighErrorRate
+        expr: |
+          sum(rate(empire_http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(empire_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: "High HTTP 5xx rate ({{ $value | humanizePercentage }})"
+          description: "More than 5% of HTTP requests returned 5xx in the last 5 minutes."
+
+      - alert: EmpireServiceDown
+        expr: up{job=~"langgraph|ollama|postgres|redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          description: "Service {{ $labels.job }} has been unreachable for 1 minute."
+
+      - alert: EmpireDiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space below 10% on {{ $labels.instance }}"
+          description: "Only {{ $value | humanizePercentage }} free — backup or prune."
+
+  - name: empire-latency
+    interval: 30s
+    rules:
+      - alert: EmpireSlowLLM
+        expr: histogram_quantile(0.99, sum(rate(empire_llm_latency_ms_bucket[5m])) by (le, model)) > 30000
+        for: 10m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: "LLM p99 latency > 30s ({{ $labels.model }})"
+          description: "LLM {{ $labels.model }} is slow. Check upstream provider."
+
+      - alert: EmpireToolLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(empire_tool_duration_ms_bucket[5m])) by (le, tool)) > 60000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tool {{ $labels.tool }} p95 > 60s"
+          description: "Investigate tool slowness — could be slow scraping or LLM round-trip."
+
+  - name: empire-cost
+    interval: 60s
+    rules:
+      - alert: EmpireBudgetBurn
+        expr: increase(empire_llm_cost_usd_total[1h]) > 5
+        for: 1h
+        labels:
+          severity: warning
+          team: finance
+        annotations:
+          summary: "LLM spend > $5 in last hour (${{ $value }})"
+          description: "Review which tenant + model is burning the budget."
+
+      - alert: EmpireApproachBudget
+        expr: increase(empire_llm_cost_usd_total{tenant=~".+"}[1d]) > 50
+        for: 1d
+        labels:
+          severity: warning
+        annotations:
+          summary: "Tenant {{ $labels.tenant }} spent > $50 today"
+          description: "Approaching or exceeding per-tenant daily cap."
+
+  - name: empire-security
+    interval: 30s
+    rules:
+      - alert: EmpirePIILeak
+        expr: increase(empire_pii_redactions_total[5m]) > 100
+        for: 1m
+        labels:
+          severity: critical
+          team: security
+        annotations:
+          summary: "PII redaction volume spike"
+          description: "More than 100 PII patterns redacted in 5min — possible leak in progress."
+
+      - alert: EmpireTenantViolation
+        expr: increase(empire_tenant_violations_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          team: security
+        annotations:
+          summary: "Tenant isolation violation attempted"
+          description: "Someone tried to access data from another tenant. Audit log entry ID: {{ $labels.audit_id }}."
+
+      - alert: EmpireAuthFailures
+        expr: rate(empire_auth_failures_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Auth failure spike ({{ $value }} failures/sec)"
+          description: "Possible brute-force or expired tokens. Check audit log."
+
+  - name: empire-resources
+    interval: 60s
+    rules:
+      - alert: EmpireHighMemory
+        expr: (container_memory_usage_bytes{name=~"ai-empire.*"} / container_spec_memory_limit_bytes{name=~"ai-empire.*"}) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} using > 90% memory"
+          description: "OOM risk. Consider raising memory limit or scaling."
+
+      - alert: EmpirePostgresConnections
+        expr: pg_stat_activity_count > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Postgres connections > 80"
+          description: "Pool may be exhausted. Check pg_stat_activity for leaks."

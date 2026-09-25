@@ -1,5 +1,16 @@
 # 🏰 AI Empire
 
+<div align="center">
+
+![CI](https://github.com/GrupoANDevelopment-m/ai-empire/workflows/CI/badge.svg)
+![Security](https://img.shields.io/badge/security-OWASP%20Top%2010-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Services](https://img.shields.io/badge/services-38+-orange)
+![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
+
+</div>
+
+
 > Self-hosted AI agent platform. Real LLM with tool calling, 38+ Docker services, browser automation, lead sourcing, image/video gen. **One command installs everything.**
 
 ```bash

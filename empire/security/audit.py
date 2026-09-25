@@ -9,6 +9,9 @@ Format:
 
 In production, pipe this to an immutable store (e.g., Loki + WORM S3,
 or AWS CloudWatch Logs with retention lock).
+
+Also increments Prometheus metrics (empire_audit_actions_total, empire_pii_redactions_total)
+when the metrics module is available.
 """
 import json
 import logging
@@ -23,6 +26,13 @@ from typing import Any, Optional
 
 from .auth import AuthContext
 from .pii import redact as redact_pii
+
+# Optional metrics — wire up if orchestrator is on the path
+try:
+    from orchestrator.metrics import metrics
+    _HAS_METRICS = True
+except ImportError:
+    _HAS_METRICS = False
 
 
 @dataclass
@@ -69,6 +79,8 @@ class AuditLogger:
             ip: str = "", user_agent: str = "") -> None:
         if not self.enabled:
             return
+        scrubbed_args = _scrub(args or {})
+        scrubbed_summary = redact_pii(result_summary)[:500]
         entry = AuditEntry(
             ts=datetime.now(timezone.utc).isoformat(),
             request_id=request_id or str(uuid.uuid4()),
@@ -79,9 +91,8 @@ class AuditLogger:
             target=target,
             ok=ok,
             error=error,
-            # Redact PII before writing
-            args=_scrub(args or {}),
-            result_summary=redact_pii(result_summary)[:500],
+            args=scrubbed_args,
+            result_summary=scrubbed_summary,
             ip=ip,
             user_agent=user_agent[:200],
         )
@@ -93,6 +104,21 @@ class AuditLogger:
             pass  # file may be read-only; that's ok, we still log to stderr
         if self.also_stderr:
             self._log.info(line)
+
+        # Prometheus metrics
+        if _HAS_METRICS:
+            try:
+                metrics.audit_actions.inc(
+                    tenant=auth.tenant, actor=auth.sub, action=action,
+                )
+                # Count each PII pattern that was redacted
+                if result_summary:
+                    from .pii import _PATTERNS as _P
+                    for name, p in _P.items():
+                        if p.regex.search(result_summary):
+                            metrics.pii_redactions.inc(amount=1.0, pattern=name, action=action)
+            except Exception:
+                pass
 
 
 def _scrub(obj: Any) -> Any:

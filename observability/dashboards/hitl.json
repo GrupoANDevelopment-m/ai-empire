@@ -1,0 +1,49 @@
+{
+  "title": "AI Empire — HITL Approvals",
+  "uid": "empire-hitl",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "tags": ["empire", "hitl", "approvals"],
+  "time": {"from": "now-24h", "to": "now"},
+  "panels": [
+    {
+      "id": 1,
+      "title": "Pending Approvals by Action",
+      "type": "barchart",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [{
+        "expr": "sum(empire_hitl_pending) by (action)",
+        "legendFormat": "{{action}}",
+        "refId": "A"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "Approval Latency (decided_at - created_at)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [{
+        "expr": "histogram_quantile(0.5, sum(rate(empire_hitl_decision_seconds_bucket[1h])) by (le, action))",
+        "legendFormat": "p50 {{action}}",
+        "refId": "A"
+      }, {
+        "expr": "histogram_quantile(0.95, sum(rate(empire_hitl_decision_seconds_bucket[1h])) by (le, action))",
+        "legendFormat": "p95 {{action}}",
+        "refId": "B"
+      }],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 3,
+      "title": "Approval Outcomes (last 24h)",
+      "type": "piechart",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "targets": [{
+        "expr": "sum(increase(empire_hitl_outcomes_total[24h])) by (outcome)",
+        "legendFormat": "{{outcome}}",
+        "refId": "A"
+      }]
+    }
+  ]
+}

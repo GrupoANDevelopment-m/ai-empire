@@ -3,8 +3,14 @@ name: CI
 on:
   push:
     branches: [main, dev]
+    tags: ["v*"]
   pull_request:
     branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: ${{ github.repository }}
 
 jobs:
   # ── Gate 0: lint + syntax + secrets scan ──────────────────────────────────
@@ -15,22 +21,38 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ env.PYTHON_VERSION }}
       - name: Python syntax check
         run: |
-          python -m compileall -q empire orchestrator scripts || true
-          find . -name "*.py" -not -path "./.*" | xargs -I{} python -c "import ast; ast.parse(open('{}').read())" || exit 1
-      - name: docker-compose syntax check
-        run: docker compose config -q || docker-compose config -q
-      - name: Secret scan (basic)
+          find . -name "*.py" -not -path "./.git/*" -not -path "*/__pycache__/*" \
+            | xargs -I{} python -c "import ast; ast.parse(open('{}').read())"
+      - name: YAML syntax check
         run: |
-          # Fail on hardcoded secrets in code
-          ! grep -rEn "(api[_-]?key|secret|password|token)\s*=\s*['\"][a-zA-Z0-9_\-]{20,}['\"]" --include="*.py" --include="*.yml" --include="*.yaml" --include="*.sh" empire orchestrator scripts bin install.sh 2>/dev/null || true
+          python -c "import yaml; yaml.safe_load(open('docker-compose.yml')); yaml.safe_load(open('docker-compose.staging.yml')); yaml.safe_load(open('docker-compose.digests.yml')); print('all YAML OK')"
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: true
+      - name: Secret scan (fallback grep)
+        if: failure()
+        run: |
+          if grep -rEn "(api[_-]?key|secret|password|token)\s*=\s*['\"][a-zA-Z0-9_\-]{20,}['\"]" \
+            --include="*.py" --include="*.yml" --include="*.yaml" --include="*.sh" \
+            empire/ orchestrator/ scripts/ bin/ install.sh 2>/dev/null; then
+            echo "::error::hardcoded secret found"
+            exit 1
+          fi
+          echo "no hardcoded secrets found"
 
-  # ── Gate 0: pytest ─────────────────────────────────────────────────────────
+  # ── Gate 0: pytest (matrix: Python 3.11 + 3.12) ────────────────────────────
   tests:
-    name: Tests (104 real pytest)
+    name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -49,40 +71,73 @@ jobs:
       JWT_SECRET: ci-test-jwt-secret-rotate-in-production-1234
       DATABASE_URL: postgresql://empire:empire@postgres:5432/ai_empire
       REDIS_URL: redis://redis:6379/0
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('orchestrator/requirements.txt') }}
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r orchestrator/requirements.txt
-          pip install pytest httpx PyJWT redis asyncpg psutil
+          pip install pytest pytest-asyncio pytest-cov httpx PyJWT redis asyncpg psutil
       - name: Run tests
         run: |
           cd orchestrator
-          python -m pytest tests/ -v --tb=short -x --ignore=tests/test_chaos.py
+          python -m pytest tests/ -v --tb=short \
+            --ignore=tests/test_chaos.py \
+            --cov=. --cov-report=xml --cov-report=term
+      - name: Upload coverage
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: orchestrator/coverage.xml
 
-  # ── Gate 0: docker-compose validation + image pull dry-run ────────────────
+  # ── Gate 0: docker-compose validation + image verification ────────────────
   compose:
-    name: Compose validation + image verification
+    name: Compose validation + image digest check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate compose syntax (all profiles)
+      - name: Validate compose syntax (every profile)
         run: |
-          # Validate the YAML is parseable for each profile
+          docker compose version
           for profile in core agents browser leads design video data crm office gateway lite; do
-            echo "Validating profile: $profile"
-            docker compose --profile $profile config -q
+            echo "::group::Profile: $profile"
+            docker compose --profile $profile config -q && echo "  ✓ $profile OK" || (echo "  ✗ $profile FAILED"; exit 1)
+            echo "::endgroup::"
           done
-      - name: Verify image URLs (using verify_images.sh)
+      - name: Validate staging + digests overlays
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.staging.yml config -q
+          echo "✓ staging overlay valid"
+          docker compose -f docker-compose.yml -f docker-compose.digests.yml config -q
+          echo "✓ digests overlay valid"
+      - name: Verify image URLs
         run: |
           chmod +x scripts/verify_images.sh
           bash scripts/verify_images.sh docker-compose.yml
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # for ghcr.io auth
+      - name: Re-pin digests if drifted
+        run: |
+          bash scripts/pin_digests.sh docker-compose.yml docker-compose.digests.yml
+      - name: Commit updated digests (only if changed)
+        run: |
+          if git diff --quiet docker-compose.digests.yml; then
+            echo "digests up-to-date"
+          else
+            git config user.email "ci@ai-empire"
+            git config user.name "ai-empire-ci"
+            git add docker-compose.digests.yml
+            git commit -m "ci: refresh image digests"
+            git push
+          fi
 
   # ── Gate 0: security smoke test ────────────────────────────────────────────
   security:
@@ -92,48 +147,148 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - name: Test JWT/RBAC/PII/rate limit
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install + test security layer
         run: |
           pip install PyJWT redis httpx
-          export SECRET_KEY="x" SECRETS=$(python3 -c "print('x'*64)")
-          python - <<'EOF'
+          SECRET_KEY=$(openssl rand -hex 32) python - <<'EOF'
           import os
-          os.environ['SECRET_KEY'] = 'x' * 64
-          os.environ['JWT_SECRET'] = 'x' * 64
-          from empire.security.auth import Role, issue_token, verify_token
-          from empire.security.rbac import Permission, has_permission, AuthContext
+          from empire.security.auth import Role, issue_token, verify_token, AuthContext
+          from empire.security.rbac import Permission, has_permission
           from empire.security.pii import redact
           from empire.security.rate_limit import RateLimiter
+          from empire.agent.llm.tenant import (
+              set_current_tenant, get_current_tenant, tenant_filter_clause,
+              assert_tenant_match, with_tenant,
+          )
 
+          # 1. JWT
           t = issue_token('u', Role.OPERATOR, 'acme', scope=['run:tests'])
           assert verify_token(t)['sub'] == 'u'
-          print('JWT ok')
 
+          # 2. RBAC
           a = AuthContext(sub='u', role=Role.OPERATOR, tenant='acme', scope=['run:tests'])
           assert has_permission(a, Permission.RUN_TESTS)
           assert not has_permission(a, Permission.MANAGE_USERS)
-          print('RBAC ok')
 
+          # 3. PII
           assert '[REDACTED' in redact('hi john@example.com')
-          print('PII ok')
 
+          # 4. Rate limit
           rl = RateLimiter(redis_url=None, default_per_min=10, default_burst=20)
           for _ in range(20): rl.check('x', 1)
           ok, _ = rl.check('x', 1)
           assert not ok
-          print('Rate limit ok')
+
+          # 5. Tenant isolation
+          set_current_tenant('acme')
+          assert_tenant_match({'id': 'l1', 'tenant': 'acme'})
+          try:
+              assert_tenant_match({'id': 'l1', 'tenant': 'evil-corp'})
+              raise AssertionError('cross-tenant should have blocked')
+          except PermissionError:
+              pass
+
+          # 6. SQL filter clause
+          clause, params = tenant_filter_clause()
+          assert clause == 'tenant = %s'
+          assert params == ['acme']
+
+          print('all security checks pass')
           EOF
 
-  # ── Gate 1: build docker images (sanity, no push) ──────────────────────────
+  # ── Gate 1: build Docker images (parallel matrix) ─────────────────────────
   build:
-    name: Build orchestrator image
+    name: Build Docker images
     runs-on: ubuntu-latest
-    needs: [lint, tests]
+    needs: [lint, tests, security]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: orchestrator
+            dockerfile: orchestrator/Dockerfile
+          - image: media-engine
+            dockerfile: Dockerfile.media
+          - image: worker
+            dockerfile: orchestrator/Dockerfile.worker
+          - image: browser
+            dockerfile: orchestrator/Dockerfile.browser
+          - image: outreach
+            dockerfile: orchestrator/Dockerfile.outreach
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - name: Build orchestrator
-        run: docker buildx build -f orchestrator/Dockerfile --tag ai-empire/orchestrator:test .
-      - name: Build media-engine
-        run: docker buildx build -f Dockerfile.media --tag ai-empire/media-engine:test .
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build + cache
+        run: |
+          docker buildx build \
+            -f ${{ matrix.dockerfile }} \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:${{ github.sha }} \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:latest \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            .
+      - name: Push (main only)
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        run: |
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:${{ github.sha }}
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:latest
+
+  # ── Gate 1: container scan (trivy) ─────────────────────────────────────────
+  scan:
+    name: Container security scan
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/orchestrator:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: "0"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+  # ── Gate 2: release on tag ─────────────────────────────────────────────────
+  release:
+    name: Release on tag
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, scan, compose]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generate changelog
+        id: changelog
+        run: |
+          CHANGELOG=$(git log $(git describe --tags --abbrev=0 HEAD~1)..HEAD --oneline 2>/dev/null | head -50)
+          echo "## Changes" > release-notes.md
+          echo "$CHANGELOG" >> release-notes.md
+          cat release-notes.md
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-notes.md
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
