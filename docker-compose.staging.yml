@@ -1,0 +1,126 @@
+# AI Empire — Staging environment.
+#
+# Uses different ports, different container names, and a separate network
+# so staging can run alongside production on the same host.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+#
+# Staging uses:
+#   - Different ports (9xxx for web, 8xxx for most APIs)
+#   - Container prefix `ai-empire-staging-`
+#   - Network `ai-empire-staging-internal`
+#   - Volume prefix `stg-` so production data is not touched
+#   - `STAGING=true` env var on every service so the app can switch behavior
+
+name: ai-empire-staging
+
+# Mark every service as staging
+x-staging-env:
+  STAGING: "true"
+  LOG_LEVEL: "DEBUG"
+  PII_REDACT: "email,phone"  # stricter in staging
+  SENTRY_DSN: ""             # no prod telemetry in staging
+
+# Use the same core images but isolated
+services:
+  ollama:
+    extends:
+      file: docker-compose.yml
+      service: ollama
+    name: ai-empire-staging-ollama
+    ports: ["${OLLAMA_STG_PORT:-19134}:11434"]
+    environment:
+      - OLLAMA_KEEP_ALIVE=2h
+      - OLLAMA_HOST=0.0.0.0:11434
+    volumes:
+      - stg-ollama_data:/root/.ollama
+    networks:
+      - staging-internal
+
+  postgres:
+    extends:
+      file: docker-compose.yml
+      service: postgres
+    name: ai-empire-staging-postgres
+    ports: ["${POSTGRES_STG_PORT:-15432}:5432"]
+    environment:
+      POSTGRES_USER: empire
+      POSTGRES_PASSWORD: ${POSTGRES_STG_PASSWORD:-staging-only}
+      POSTGRES_DB: ai_empire_stg
+    volumes:
+      - stg-postgres_data:/var/lib/postgresql/data
+    networks:
+      - staging-internal
+
+  redis:
+    extends:
+      file: docker-compose.yml
+      service: redis
+    name: ai-empire-staging-redis
+    ports: ["${REDIS_STG_PORT:-16379}:6379"]
+    volumes:
+      - stg-redis_data:/data
+    networks:
+      - staging-internal
+
+  n8n:
+    extends:
+      file: docker-compose.yml
+      service: n8n
+    name: ai-empire-staging-n8n
+    ports: ["${N8N_STG_PORT:-15678}:5678"]
+    volumes:
+      - stg-n8n_data:/home/node/.n8n
+    networks:
+      - staging-internal
+
+  langgraph-orchestrator:
+    extends:
+      file: docker-compose.yml
+      service: langgraph-orchestrator
+    name: ai-empire-staging-langgraph
+    ports: ["${LANGGRAPH_STG_PORT:-18123}:8123"]
+    environment:
+      DATABASE_URL: postgresql://empire:${POSTGRES_STG_PASSWORD:-staging-only}@postgres:5432/ai_empire_stg
+      OLLAMA_BASE_URL: http://ollama:11434
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    networks:
+      - staging-internal
+
+  # ── Lightweight staging-only services ─────────────────────────────────────
+  # Skip ComfyUI/Open-Sora in staging — they need GPU. Just use the
+  # media-engine (CPU) instead.
+
+  media-engine:
+    extends:
+      file: docker-compose.yml
+      service: media-engine
+    name: ai-empire-staging-media-engine
+    ports:
+      - "${MEDIA_ENGINE_STG_PORT:-18189}:8189"
+      - "${MEDIA_VIDEO_STG_PORT:-18200}:8200"
+    networks:
+      - staging-internal
+
+  # No GPU services in staging by default. Uncomment to enable:
+  # comfyui:
+  #   extends:
+  #     file: docker-compose.yml
+  #     service: comfyui
+  #   name: ai-empire-staging-comfyui
+  #   ports: ["${COMFYUI_STG_PORT:-18188}:8188"]
+  #   networks:
+  #     - staging-internal
+
+networks:
+  staging-internal:
+    name: ai-empire-staging-internal
+    driver: bridge
+
+volumes:
+  stg-ollama_data:
+  stg-postgres_data:
+  stg-redis_data:
+  stg-n8n_data:

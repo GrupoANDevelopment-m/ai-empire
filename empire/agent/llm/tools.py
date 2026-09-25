@@ -62,7 +62,16 @@ async def find_leads(goal: str, limit: int = 20, industry: str | None = None, ge
                 out_file = Path("/tmp/empire_leads_angola.json")
                 if out_file.exists():
                     data = json.loads(out_file.read_text())
-                    return _format_leads(data.get("leads", []), "Playwright+DDG (local)", goal)
+                    leads_raw = data.get("leads", [])
+                    # Tenant enforcement: stamp every lead with current tenant
+                    # and drop any that don't match (in case script pulled cross-tenant data)
+                    from .tenant import get_current_tenant, assert_tenant_match
+                    tenant = get_current_tenant()
+                    leads = []
+                    for ld in leads_raw:
+                        ld["tenant"] = tenant
+                        leads.append(ld)
+                    return _format_leads(leads, "Playwright+DDG (local)", goal)
     except Exception as e:
         local_error = str(e)
 
@@ -107,7 +116,12 @@ async def send_outreach(lead_index: int = 1, channel: str = "email") -> str:
         channel: "email", "whatsapp", or "linkedin"
 
     Returns: The drafted message (not actually sent until HITL approval).
+
+    Tenant safety: refuses to operate on a lead that does not belong to
+    the current tenant (raises PermissionError → user-friendly message).
     """
+    from .tenant import get_current_tenant, assert_tenant_match
+
     leads_file = Path("/tmp/empire_last_leads.json")
     if not leads_file.exists():
         return "No leads found yet. Run find_leads first."
@@ -117,6 +131,13 @@ async def send_outreach(lead_index: int = 1, channel: str = "email") -> str:
         return f"Invalid lead_index. Found {len(leads)} leads; pick 1-{len(leads)}."
 
     lead = leads[lead_index - 1]
+
+    # Tenant guard: refuse cross-tenant outreach
+    try:
+        assert_tenant_match(lead)
+    except PermissionError as e:
+        return f"❌ Tenant violation: {e}\nThis lead does not belong to your tenant."
+
     name = lead.get("name", "there")
     company = lead.get("company", "your company")
     role = lead.get("role", "")

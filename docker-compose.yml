@@ -362,8 +362,8 @@ services:
   penpot:
     logging: *id001
     restart: unless-stopped
-    image: penpot/penpot:latest
-    container_name: ai-empire-penpot
+    image: penpotapp/backend:latest
+    container_name: ai-empire-penpot-backend
     profiles:
     - design
     ports:
@@ -372,6 +372,28 @@ services:
     - penpot_data:/home/penpot/data
     environment:
       PENPOT_FLAGS: -ppublicuri http://localhost:${PENPOT_PORT:-9001} -pdisable-registration
+      PENPOT_DATABASE_URI: postgresql://${POSTGRES_USER:-empire}:${POSTGRES_PASSWORD:-empire_dev}@postgres:5432/ai_empire
+      PENPOT_REDIS_URI: redis://redis:6379
+    networks:
+    - internal
+  penpot-frontend:
+    logging: *id001
+    restart: unless-stopped
+    image: penpotapp/frontend:latest
+    container_name: ai-empire-penpot-frontend
+    profiles:
+    - design
+    ports:
+    - ${PENPOT_FRONTEND_PORT:-9002}:8080
+    networks:
+    - internal
+  penpot-exporter:
+    logging: *id001
+    restart: unless-stopped
+    image: penpotapp/exporter:latest
+    container_name: ai-empire-penpot-exporter
+    profiles:
+    - design
     networks:
     - internal
   comfyui:

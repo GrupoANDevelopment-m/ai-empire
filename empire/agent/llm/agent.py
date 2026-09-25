@@ -70,10 +70,17 @@ class EmpireAgent:
     Real LLM-backed agent with tool use, memory, and streaming.
     """
 
-    def __init__(self, llm: LLMClient | None = None):
+    def __init__(self, llm: LLMClient | None = None, tenant: str = "default"):
         self.llm = llm or LLMClient()
+        self.tenant = tenant  # default tenant for all sessions in this agent
         self.tools = tool_definitions()
         self.sessions: dict[str, list[Message]] = {}
+        # Set the tenant context on init (ContextVar) so tools can read it
+        from .tenant import set_current_tenant
+        try:
+            set_current_tenant(tenant)
+        except ValueError:
+            pass
 
     def _history(self, session: str) -> list[dict]:
         msgs = self.sessions.setdefault(session, [])
@@ -99,6 +106,7 @@ class EmpireAgent:
     async def handle(self, text: str, session: str = "default") -> dict:
         """
         Non-streaming handle. Returns {text, tool_calls, model, backend}.
+        Tenant context propagates into every tool call.
         """
         backend_info = await self.llm.detect()
         if not self.llm.is_available:
@@ -109,8 +117,16 @@ class EmpireAgent:
                 "backend": backend_info,
             }
 
-        self._save(session, Message(role="user", content=text))
-        messages = self._history(session)
+        # Tenant propagation
+        from .tenant import set_current_tenant, get_current_tenant
+        try:
+            set_current_tenant(self.tenant)
+        except ValueError:
+            pass
+        tenant_session = f"{get_current_tenant()}/{session}"
+
+        self._save(tenant_session, Message(role="user", content=text))
+        messages = self._history(tenant_session)
 
         # Agent loop: keep calling LLM until it stops asking for tools
         all_tool_calls = []
@@ -122,7 +138,7 @@ class EmpireAgent:
             tool_calls = msg.get("tool_calls")
 
             # Save assistant message
-            self._save(session, Message(
+            self._save(tenant_session, Message(
                 role="assistant",
                 content=text_reply,
                 tool_calls=tool_calls,
@@ -152,7 +168,7 @@ class EmpireAgent:
                     "result": result,
                 })
                 # Feed result back to LLM
-                self._save(session, Message(
+                self._save(tenant_session, Message(
                     role="tool",
                     name=fn_name,
                     tool_call_id=tc["id"],
@@ -173,6 +189,11 @@ class EmpireAgent:
     async def stream(self, text: str, session: str = "default") -> AsyncIterator[dict]:
         """
         Streaming handle. Yields {type, content|tool|args|result|...}.
+
+        Session names are namespaced as "{tenant}/{session}" internally so
+        that two tenants can use the same session name without colliding.
+        Tenant context (set via __init__) propagates into tool calls so
+        every DB query is filtered by tenant.
         """
         backend_info = await self.llm.detect()
         if not self.llm.is_available:
@@ -183,8 +204,18 @@ class EmpireAgent:
             }
             return
 
-        self._save(session, Message(role="user", content=text))
-        messages = self._history(session)
+        # Tenant propagation — set context for this whole request
+        from .tenant import set_current_tenant, get_current_tenant
+        try:
+            set_current_tenant(self.tenant)
+        except ValueError:
+            pass
+
+        # Namespace session with tenant so different tenants don't collide
+        tenant_session = f"{get_current_tenant()}/{session}"
+
+        self._save(tenant_session, Message(role="user", content=text))
+        messages = self._history(tenant_session)
 
         # Non-streaming tool call round (LLMs vary in streaming tool support)
         for iteration in range(6):
@@ -194,7 +225,7 @@ class EmpireAgent:
             text_reply = msg.get("content", "") or ""
             tool_calls = msg.get("tool_calls")
 
-            self._save(session, Message(
+            self._save(tenant_session, Message(
                 role="assistant",
                 content=text_reply,
                 tool_calls=tool_calls,
@@ -222,13 +253,13 @@ class EmpireAgent:
                 result = await execute_tool(fn_name, fn_args)
                 yield {"type": "tool_result", "tool": fn_name, "result": result}
 
-                self._save(session, Message(
+                self._save(tenant_session, Message(
                     role="tool",
                     name=fn_name,
                     tool_call_id=tc["id"],
                     content=result,
                 ))
-            messages = self._history(session)
+            messages = self._history(tenant_session)
 
         yield {"type": "done"}
 
