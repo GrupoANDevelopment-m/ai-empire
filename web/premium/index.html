@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Empire — Sua IA, Seu Império</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Cinzel:wght@500;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  /* ═══════════════════════════════════════════════════════════════
+     RESET + BASE
+     ═══════════════════════════════════════════════════════════════ */
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --gold-1: #f9d976;
+    --gold-2: #f39f86;
+    --gold-3: #d4a017;
+    --gold-deep: #8b6914;
+    --gold-glow: #ffd700;
+    --bg-0: #050505;
+    --bg-1: #0a0a0a;
+    --bg-2: #111111;
+    --bg-3: #1a1a1a;
+    --border: rgba(255, 215, 0, 0.15);
+    --border-bright: rgba(255, 215, 0, 0.4);
+    --text: #e8e8e8;
+    --text-dim: #888888;
+    --text-bright: #ffffff;
+    --shadow-gold: 0 0 40px rgba(255, 215, 0, 0.3);
+  }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg-0);
+    color: var(--text);
+    overflow-x: hidden;
+    line-height: 1.6;
+    min-height: 100vh;
+    position: relative;
+  }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at top, rgba(255, 215, 0, 0.08) 0%, transparent 50%),
+      radial-gradient(ellipse at bottom, rgba(184, 134, 11, 0.05) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255, 215, 0, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 215, 0, 0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.5;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     NAV
+     ═══════════════════════════════════════════════════════════════ */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(5, 5, 5, 0.85);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .nav-brand {
+    display: flex; align-items: center; gap: 0.75rem;
+    font-family: 'Cinzel', serif;
+    font-weight: 900;
+    font-size: 1.25rem;
+    letter-spacing: 0.05em;
+    background: linear-gradient(135deg, var(--gold-1) 0%, var(--gold-2) 50%, var(--gold-3) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .nav-brand-mark {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--gold-3), var(--gold-1));
+    clip-path: polygon(50% 0%, 100% 35%, 80% 100%, 20% 100%, 0% 35%);
+    box-shadow: var(--shadow-gold);
+  }
+  .nav-links {
+    display: flex; gap: 2rem;
+    align-items: center;
+  }
+  .nav-link {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    transition: color 0.2s;
+    position: relative;
+  }
+  .nav-link:hover { color: var(--gold-1); }
+  .nav-link.active::after {
+    content: '';
+    position: absolute;
+    bottom: -8px; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--gold-3), transparent);
+  }
+  .nav-cta {
+    background: linear-gradient(135deg, var(--gold-3), var(--gold-deep));
+    color: var(--bg-0);
+    padding: 0.6rem 1.5rem;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 4px 20px rgba(255, 215, 0, 0.3);
+    transition: all 0.3s;
+  }
+  .nav-cta:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 30px rgba(255, 215, 0, 0.5);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     HERO
+     ═══════════════════════════════════════════════════════════════ */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 6rem 2rem 4rem;
+    position: relative;
+    z-index: 1;
+  }
+  .hero-emblem {
+    perspective: 1500px;
+    margin-bottom: 3rem;
+    position: relative;
+  }
+  .hero-emblem-3d {
+    width: 320px; height: 320px;
+    position: relative;
+    transform-style: preserve-3d;
+    animation: rotate3d 20s linear infinite;
+  }
+  @keyframes rotate3d {
+    from { transform: rotateY(0deg) rotateX(10deg); }
+    to { transform: rotateY(360deg) rotateX(10deg); }
+  }
+  .emblem-ring {
+    position: absolute;
+    inset: 0;
+    border: 2px solid var(--gold-3);
+    border-radius: 50%;
+    box-shadow: 0 0 60px rgba(255, 215, 0, 0.4),
+                inset 0 0 40px rgba(255, 215, 0, 0.2);
+  }
+  .emblem-ring::before, .emblem-ring::after {
+    content: '';
+    position: absolute;
+    inset: -20px;
+    border: 1px solid var(--border-bright);
+    border-radius: 50%;
+    border-top-color: transparent;
+    border-bottom-color: transparent;
+    animation: spin 8s linear infinite;
+  }
+  .emblem-ring::after {
+    inset: -40px;
+    animation-direction: reverse;
+    animation-duration: 12s;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .emblem-letter {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-family: 'Cinzel', serif;
+    font-size: 14rem;
+    font-weight: 900;
+    background: linear-gradient(135deg,
+      #8b6914 0%,
+      #d4a017 25%,
+      #ffd700 50%,
+      #f9d976 70%,
+      #8b6914 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 10px 30px rgba(255, 215, 0, 0.5))
+            drop-shadow(0 0 60px rgba(255, 215, 0, 0.3));
+    line-height: 1;
+    z-index: 2;
+  }
+  .emblem-crown {
+    position: absolute;
+    top: 18%; left: 50%;
+    transform: translateX(-50%);
+    font-size: 3rem;
+    filter: drop-shadow(0 0 20px rgba(255, 215, 0, 0.8));
+    z-index: 3;
+  }
+  .emblem-orbit {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 380px; height: 380px;
+    margin-top: -190px; margin-left: -190px;
+    animation: spin 30s linear infinite;
+    z-index: 1;
+  }
+  .orbit-dot {
+    position: absolute;
+    width: 12px; height: 12px;
+    background: radial-gradient(circle, var(--gold-1) 0%, var(--gold-3) 60%, transparent 100%);
+    border-radius: 50%;
+    box-shadow: 0 0 20px var(--gold-glow);
+  }
+
+  .hero-title {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(3rem, 8vw, 6rem);
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    text-align: center;
+    line-height: 1;
+    margin-bottom: 1rem;
+    background: linear-gradient(135deg,
+      #f9d976 0%,
+      #ffd700 30%,
+      #ffffff 50%,
+      #ffd700 70%,
+      #d4a017 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 4px 20px rgba(255, 215, 0, 0.4));
+  }
+  .hero-subtitle {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(1rem, 2.5vw, 1.5rem);
+    letter-spacing: 0.4em;
+    color: var(--gold-1);
+    margin-bottom: 3rem;
+    text-align: center;
+    text-transform: uppercase;
+    font-weight: 500;
+  }
+
+  /* Feature wheel below hero */
+  .feature-wheel {
+    position: relative;
+    width: 100%;
+    max-width: 900px;
+    margin-top: 4rem;
+    padding: 2rem 0;
+  }
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1.5rem;
+  }
+  .feature-chip {
+    background: linear-gradient(135deg, rgba(20, 20, 20, 0.8), rgba(10, 10, 10, 0.8));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem 1rem;
+    text-align: center;
+    backdrop-filter: blur(10px);
+    transition: all 0.3s;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+  }
+  .feature-chip::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at top, rgba(255, 215, 0, 0.15), transparent 70%);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .feature-chip:hover {
+    transform: translateY(-4px);
+    border-color: var(--border-bright);
+    box-shadow: 0 10px 40px rgba(255, 215, 0, 0.2);
+  }
+  .feature-chip:hover::before { opacity: 1; }
+  .feature-icon {
+    width: 48px; height: 48px;
+    margin: 0 auto 0.75rem;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--bg-3), var(--bg-2));
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    color: var(--gold-1);
+    font-size: 1.5rem;
+  }
+  .feature-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     METRICS BAR
+     ═══════════════════════════════════════════════════════════════ */
+  .metrics {
+    position: relative;
+    z-index: 1;
+    padding: 4rem 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .section-title {
+    text-align: center;
+    margin-bottom: 3rem;
+  }
+  .section-eyebrow {
+    color: var(--gold-3);
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3em;
+    margin-bottom: 0.75rem;
+  }
+  .section-h2 {
+    font-family: 'Cinzel', serif;
+    font-size: clamp(2rem, 4vw, 3rem);
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--gold-1), var(--gold-3));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.5rem;
+  }
+  .metric-card {
+    background: linear-gradient(135deg, rgba(20, 20, 20, 0.6), rgba(5, 5, 5, 0.8));
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.75rem;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s;
+  }
+  .metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--gold-3), transparent);
+  }
+  .metric-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--border-bright);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4),
+                0 0 30px rgba(255, 215, 0, 0.1);
+  }
+  .metric-label {
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.75rem;
+    font-weight: 600;
+  }
+  .metric-value {
+    font-family: 'Cinzel', serif;
+    font-size: 2.5rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--gold-1), var(--gold-3));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    line-height: 1;
+  }
+  .metric-delta {
+    margin-top: 0.75rem;
+    font-size: 0.75rem;
+    color: #4ade80;
+    display: flex; align-items: center; gap: 0.25rem;
+  }
+  .metric-delta.down { color: #ef4444; }
+
+  /* ═══════════════════════════════════════════════════════════════
+     FEATURES GRID (Big cards)
+     ═══════════════════════════════════════════════════════════════ */
+  .features {
+    position: relative;
+    z-index: 1;
+    padding: 4rem 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.5rem;
+    margin-top: 3rem;
+  }
+  .feature-card {
+    background: linear-gradient(135deg, rgba(15, 15, 15, 0.9), rgba(5, 5, 5, 0.9));
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 2rem;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.4s;
+    cursor: pointer;
+  }
+  .feature-card::before {
+    content: '';
+    position: absolute;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: radial-gradient(circle at center, rgba(255, 215, 0, 0.1) 0%, transparent 40%);
+    opacity: 0;
+    transition: opacity 0.4s;
+    pointer-events: none;
+  }
+  .feature-card:hover::before { opacity: 1; }
+  .feature-card:hover {
+    border-color: var(--border-bright);
+    transform: translateY(-4px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5),
+                0 0 40px rgba(255, 215, 0, 0.15);
+  }
+  .feature-card-header {
+    display: flex; align-items: center; gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .feature-card-icon {
+    width: 56px; height: 56px;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--gold-3), var(--gold-deep));
+    border-radius: 12px;
+    font-size: 1.75rem;
+    box-shadow: 0 4px 20px rgba(255, 215, 0, 0.3);
+  }
+  .feature-card-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-bright);
+  }
+  .feature-card-status {
+    margin-left: auto;
+    font-size: 0.7rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .status-active {
+    background: rgba(74, 222, 128, 0.15);
+    color: #4ade80;
+    border: 1px solid rgba(74, 222, 128, 0.3);
+  }
+  .status-idle {
+    background: rgba(255, 215, 0, 0.1);
+    color: var(--gold-1);
+    border: 1px solid var(--border-bright);
+  }
+  .feature-card-desc {
+    color: var(--text-dim);
+    font-size: 0.875rem;
+    line-height: 1.6;
+    margin-bottom: 1.5rem;
+  }
+  .feature-card-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+  }
+  .mini-stat-value {
+    font-family: 'Cinzel', serif;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--gold-1);
+  }
+  .mini-stat-label {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.25rem;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     COMMAND CENTER (chat + activity)
+     ═══════════════════════════════════════════════════════════════ */
+  .command {
+    position: relative;
+    z-index: 1;
+    padding: 4rem 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .command-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 1.5rem;
+    margin-top: 3rem;
+  }
+  @media (max-width: 900px) {
+    .command-grid { grid-template-columns: 1fr; }
+  }
+  .panel {
+    background: linear-gradient(135deg, rgba(15, 15, 15, 0.9), rgba(5, 5, 5, 0.9));
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+  .panel-header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 0.75rem;
+    background: linear-gradient(180deg, rgba(255, 215, 0, 0.03), transparent);
+  }
+  .panel-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-bright);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .panel-dot {
+    width: 8px; height: 8px;
+    background: var(--gold-1);
+    border-radius: 50%;
+    box-shadow: 0 0 10px var(--gold-glow);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .panel-actions {
+    margin-left: auto;
+    display: flex; gap: 0.5rem;
+  }
+  .panel-action {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 0.35rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .panel-action:hover {
+    border-color: var(--border-bright);
+    color: var(--gold-1);
+  }
+
+  /* Chat panel */
+  .chat-transcript {
+    padding: 1.5rem;
+    height: 360px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .chat-msg {
+    max-width: 80%;
+    padding: 0.875rem 1.125rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+  .chat-msg.user {
+    align-self: flex-end;
+    background: linear-gradient(135deg, var(--gold-3), var(--gold-deep));
+    color: var(--bg-0);
+    font-weight: 500;
+    border-bottom-right-radius: 4px;
+  }
+  .chat-msg.agent {
+    align-self: flex-start;
+    background: rgba(20, 20, 20, 0.9);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-bottom-left-radius: 4px;
+  }
+  .chat-msg-time {
+    display: block;
+    font-size: 0.65rem;
+    opacity: 0.6;
+    margin-top: 0.25rem;
+  }
+  .chat-msg.tool {
+    align-self: flex-start;
+    background: rgba(255, 215, 0, 0.08);
+    border: 1px solid var(--border);
+    color: var(--gold-1);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .chat-msg.tool::before {
+    content: '⚡';
+    color: var(--gold-3);
+  }
+
+  .chat-input {
+    padding: 1.25rem;
+    border-top: 1px solid var(--border);
+    display: flex; gap: 0.75rem;
+    background: rgba(0, 0, 0, 0.3);
+  }
+  .chat-input input {
+    flex: 1;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.875rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .chat-input input:focus { border-color: var(--gold-3); }
+  .chat-input input::placeholder { color: var(--text-dim); }
+  .chat-send {
+    background: linear-gradient(135deg, var(--gold-3), var(--gold-deep));
+    color: var(--bg-0);
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .chat-send:hover { box-shadow: 0 4px 20px rgba(255, 215, 0, 0.4); }
+
+  /* Activity panel */
+  .activity-list {
+    padding: 1rem;
+    display: flex; flex-direction: column; gap: 0.75rem;
+  }
+  .activity-item {
+    display: flex; align-items: flex-start; gap: 0.75rem;
+    padding: 0.875rem;
+    border-radius: 8px;
+    background: rgba(20, 20, 20, 0.5);
+    border-left: 3px solid var(--gold-3);
+  }
+  .activity-icon {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--bg-3), var(--bg-2));
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--gold-1);
+    font-size: 1rem;
+    flex-shrink: 0;
+  }
+  .activity-body { flex: 1; min-width: 0; }
+  .activity-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-bright);
+  }
+  .activity-meta {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    margin-top: 0.25rem;
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     FOOTER
+     ═══════════════════════════════════════════════════════════════ */
+  footer {
+    position: relative;
+    z-index: 1;
+    padding: 3rem 2rem;
+    border-top: 1px solid var(--border);
+    text-align: center;
+    background: var(--bg-1);
+  }
+  .footer-tag {
+    font-family: 'Cinzel', serif;
+    font-size: 1.5rem;
+    font-weight: 900;
+    background: linear-gradient(135deg, var(--gold-1), var(--gold-3));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: 0.2em;
+    margin-bottom: 1rem;
+  }
+  .footer-meta {
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg-1); }
+  ::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, var(--gold-3), var(--gold-deep));
+    border-radius: 3px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════ NAV ═══════ -->
+<nav>
+  <div class="nav-brand">
+    <div class="nav-brand-mark"></div>
+    AI EMPIRE
+  </div>
+  <div class="nav-links">
+    <a class="nav-link active" href="#dashboard">Dashboard</a>
+    <a class="nav-link" href="#agentes">Agentes</a>
+    <a class="nav-link" href="#automacao">Automação</a>
+    <a class="nav-link" href="#analytics">Analytics</a>
+    <a class="nav-link" href="#comando">Comando</a>
+    <button class="nav-cta">+ Novo Agente</button>
+  </div>
+</nav>
+
+<!-- ═══════ HERO ═══════ -->
+<section class="hero">
+  <div class="hero-emblem">
+    <div class="hero-emblem-3d">
+      <div class="emblem-orbit">
+        <div class="orbit-dot" style="top: -6px; left: 50%;"></div>
+        <div class="orbit-dot" style="top: 50%; right: -6px;"></div>
+        <div class="orbit-dot" style="bottom: -6px; left: 50%;"></div>
+        <div class="orbit-dot" style="top: 50%; left: -6px;"></div>
+      </div>
+      <div class="emblem-ring"></div>
+      <div class="emblem-crown">♛</div>
+      <div class="emblem-letter">A</div>
+    </div>
+  </div>
+
+  <h1 class="hero-title">AI EMPIRE</h1>
+  <div class="hero-subtitle">Sua IA · Seu Império</div>
+
+  <div class="feature-wheel">
+    <div class="feature-grid">
+      <div class="feature-chip">
+        <div class="feature-icon">▶</div>
+        <div class="feature-label">Cria Vídeos</div>
+      </div>
+      <div class="feature-chip">
+        <div class="feature-icon">◉</div>
+        <div class="feature-label">Busca Clientes</div>
+      </div>
+      <div class="feature-chip">
+        <div class="feature-icon">👁</div>
+        <div class="feature-label">Assiste Vídeos</div>
+      </div>
+      <div class="feature-chip">
+        <div class="feature-icon">⚇</div>
+        <div class="feature-label">Responde Clientes</div>
+      </div>
+      <div class="feature-chip">
+        <div class="feature-icon">✉</div>
+        <div class="feature-label">Responde E-mails</div>
+      </div>
+      <div class="feature-chip">
+        <div class="feature-icon">📋</div>
+        <div class="feature-label">Digita Documentos</div>
+      </div>
+      <div class="feature-chip">
+        <div class="feature-icon">💬</div>
+        <div class="feature-label">Redes Públicas</div>
+      </div>
+      <div class="feature-chip">
+        <div class="feature-icon">📊</div>
+        <div class="feature-label">Gera Leads</div>
+      </div>
+      <div class="feature-chip">
+        <div class="feature-icon">🗄</div>
+        <div class="feature-label">CRM</div>
+      </div>
+      <div class="feature-chip">
+        <div class="feature-icon">⚡</div>
+        <div class="feature-label">E muito mais</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ METRICS ═══════ -->
+<section class="metrics" id="dashboard">
+  <div class="section-title">
+    <div class="section-eyebrow">Performance em tempo real</div>
+    <h2 class="section-h2">Métricas do Império</h2>
+  </div>
+  <div class="metrics-grid">
+    <div class="metric-card">
+      <div class="metric-label">Agentes Ativos</div>
+      <div class="metric-value">12</div>
+      <div class="metric-delta">▲ 4 desde ontem</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Leads Gerados (mês)</div>
+      <div class="metric-value">3.847</div>
+      <div class="metric-delta">▲ 27.3% vs. anterior</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Receita Pipeline</div>
+      <div class="metric-value">R$ 2.4M</div>
+      <div class="metric-delta">▲ R$ 480k esta semana</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Taxa de Conversão</div>
+      <div class="metric-value">18.6%</div>
+      <div class="metric-delta">▲ 2.1 pontos</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">E-mails Enviados</div>
+      <div class="metric-value">28.4k</div>
+      <div class="metric-delta">▲ 12% semanal</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Vídeos Produzidos</div>
+      <div class="metric-value">247</div>
+      <div class="metric-delta">▲ 89 hoje</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Uptime do Sistema</div>
+      <div class="metric-value">99.97%</div>
+      <div class="metric-delta">▲ SLO cumprido</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Latência Média</div>
+      <div class="metric-value">340ms</div>
+      <div class="metric-delta down">▼ 60ms mais lento</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ FEATURES GRID ═══════ -->
+<section class="features" id="agentes">
+  <div class="section-title">
+    <div class="section-eyebrow">Capacidades operacionais</div>
+    <h2 class="section-h2">Agentes em Produção</h2>
+  </div>
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <div class="feature-card-icon">▶</div>
+        <div class="feature-card-title">Estúdio de Vídeo IA</div>
+        <span class="feature-card-status status-active">Ativo</span>
+      </div>
+      <p class="feature-card-desc">
+        Geração de vídeos em 3 tiers: GPU ComfyUI, CPU CogVideoX-2B e procedural ffmpeg. Até 4K, múltiplas proporções.
+      </p>
+      <div class="feature-card-stats">
+        <div>
+          <div class="mini-stat-value">247</div>
+          <div class="mini-stat-label">Produzidos</div>
+        </div>
+        <div>
+          <div class="mini-stat-value">2.4s</div>
+          <div class="mini-stat-label">Latência</div>
+        </div>
+        <div>
+          <div class="mini-stat-value">4K</div>
+          <div class="mini-stat-label">Resolução</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <div class="feature-card-icon">⚇</div>
+        <div class="feature-card-title">CRM Inteligente</div>
+        <span class="feature-card-status status-active">Ativo</span>
+      </div>
+      <p class="feature-card-desc">
+        Gestão completa de leads com scoring automático, segmentação por ICP e follow-up personalizado via IA.
+      </p>
+      <div class="feature-card-stats">
+        <div>
+          <div class="mini-stat-value">3.8k</div>
+          <div class="mini-stat-label">Leads</div>
+        </div>
+        <div>
+          <div class="mini-stat-value">92</div>
+          <div class="mini-stat-label">Quentes</div>
+        </div>
+        <div>
+          <div class="mini-stat-value">18.6%</div>
+          <div class="mini-stat-label">Conversão</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <div class="feature-card-icon">✉</div>
+        <div class="feature-card-title">Outreach Multicanal</div>
+        <span class="feature-card-status status-active">Ativo</span>
+      </div>
+      <p class="feature-card-desc">
+        E-mail, WhatsApp, LinkedIn e redes sociais. Personalização por IA com HITL para aprovações críticas.
+      </p>
+      <div class="feature-card-stats">
+        <div>
+          <div class="mini-stat-value">28k</div>
+          <div class="mini-stat-label">Enviados</div>
+        </div>
+        <div>
+          <div class="mini-stat-value">42%</div>
+          <div class="mini-stat-label">Open Rate</div>
+        </div>
+        <div>
+          <div class="mini-stat-value">11%</div>
+          <div class="mini-stat-label">Reply Rate</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <div class="feature-card-icon">◉</div>
+        <div class="feature-card-title">Prospecção Ativa</div>
+        <span class="feature-card-status status-active">Ativo</span>
+      </div>
+      <p class="feature-card-desc">
+        Crawler Playwright + Chromium varre fontes públicas: LinkedIn, Maps, Reddit, diretórios setoriais.
+      </p>
+      <div class="feature-card-stats">
+        <div>
+          <div class="mini-stat-value">12</div>
+          <div class="mini-stat-label">Fontes</div>
+        </div>
+        <div>
+          <div class="mini-stat-value">847</div>
+          <div class="mini-stat-label">Hoje</div>
+        </div>
+        <div>
+          <div class="mini-stat-value">68%</div>
+          <div class="mini-stat-label">Qualificados</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <div class="feature-card-icon">📋</div>
+        <div class="feature-card-title">Documentos IA</div>
+        <span class="feature-card-status status-idle">Em fila</span>
+      </div>
+      <p class="feature-card-desc">
+        Propostas, contratos, relatórios e atas gerados por IA com templates corporativos e assinatura digital.
+      </p>
+      <div class="feature-card-stats">
+        <div>
+          <div class="mini-stat-value">1.2k</div>
+          <div class="mini-stat-label">Gerados</div>
+        </div>
+        <div>
+          <div class="mini-stat-value">38s</div>
+          <div class="mini-stat-label">Tempo médio</div>
+        </div>
+        <div>
+          <div class="mini-stat-value">99%</div>
+          <div class="mini-stat-label">Precisão</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-card-header">
+        <div class="feature-card-icon">💬</div>
+        <div class="feature-card-title">Social Media</div>
+        <span class="feature-card-status status-active">Ativo</span>
+      </div>
+      <p class="feature-card-desc">
+        Publicação automática em Instagram, LinkedIn, X, Facebook com aprovação humana (HITL) sempre ativa.
+      </p>
+      <div class="feature-card-stats">
+        <div>
+          <div class="mini-stat-value">89</div>
+          <div class="mini-stat-label">Posts hoje</div>
+        </div>
+        <div>
+          <div class="mini-stat-value">412k</div>
+          <div class="mini-stat-label">Alcance</div>
+        </div>
+        <div>
+          <div class="mini-stat-value">8.4%</div>
+          <div class="mini-stat-label">Engajamento</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ COMMAND CENTER ═══════ -->
+<section class="command" id="comando">
+  <div class="section-title">
+    <div class="section-eyebrow">Centro de comando</div>
+    <h2 class="section-h2">IA Conversando em Tempo Real</h2>
+  </div>
+  <div class="command-grid">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-dot"></span>
+        <span class="panel-title">Conversa com agente</span>
+        <div class="panel-actions">
+          <button class="panel-action">Limpar</button>
+          <button class="panel-action">Exportar</button>
+        </div>
+      </div>
+      <div class="chat-transcript">
+        <div class="chat-msg user">
+          Encontre 20 CTOs de SaaS B2B no Brasil e manda um e-mail personalizado pra cada um
+          <span class="chat-msg-time">14:32</span>
+        </div>
+        <div class="chat-msg.tool">
+          ⚡ find_leads(goal="CTO SaaS B2B Brasil", limit=20)
+        </div>
+        <div class="chat-msg agent">
+          Encontrei 20 leads qualificados. Verifiquei cargo, empresa, porte e sinais de crescimento. <strong>Score médio: 87/100</strong>. Agora vou gerar e-mails personalizados com base no segmento de cada empresa.
+          <span class="chat-msg-time">14:32</span>
+        </div>
+        <div class="chat-msg tool">
+          ⚡ send_outreach(channel="email", template="cold-saas-v2")
+        </div>
+        <div class="chat-msg agent">
+          <strong>Aguardando aprovação humana</strong> — 20 e-mails prontos para envio. Por padrão, outreach é HITL-crítico. Revise abaixo ou aprove em lote:
+          <br><br>
+          ▸ Lead 1: Carlos Souza (Vercel Brasil) — "Notei que estão escalando..."
+          <br>▸ Lead 2: Ana Lima (Stripe) — "Vi sua palestra no..."
+          <br><br>
+          <em>+ 18 outros e-mails personalizados.</em>
+          <span class="chat-msg-time">14:33</span>
+        </div>
+      </div>
+      <div class="chat-input">
+        <input type="text" placeholder="Comando para o agente... (ex: 'agora gera vídeo de demo')">
+        <button class="chat-send">Enviar ⚡</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-dot"></span>
+        <span class="panel-title">Atividade recente</span>
+      </div>
+      <div class="activity-list">
+        <div class="activity-item">
+          <div class="activity-icon">▶</div>
+          <div class="activity-body">
+            <div class="activity-title">Vídeo gerado: "Demo produto"</div>
+            <div class="activity-meta">há 2 min · T2-ffmpeg · 1.8s</div>
+          </div>
+        </div>
+        <div class="activity-item">
+          <div class="activity-icon">⚇</div>
+          <div class="activity-body">
+            <div class="activity-title">Lead qualificado: Carlos Souza</div>
+            <div class="activity-meta">há 5 min · score 92 · Vercel</div>
+          </div>
+        </div>
+        <div class="activity-item">
+          <div class="activity-icon">✉</div>
+          <div class="activity-body">
+            <div class="activity-title">20 e-mails enviados</div>
+            <div class="activity-meta">há 8 min · 42% open rate</div>
+          </div>
+        </div>
+        <div class="activity-item">
+          <div class="activity-icon">💬</div>
+          <div class="activity-body">
+            <div class="activity-title">Post publicado no LinkedIn</div>
+            <div class="activity-meta">há 12 min · 14k impressões</div>
+          </div>
+        </div>
+        <div class="activity-item">
+          <div class="activity-icon">🛡</div>
+          <div class="activity-body">
+            <div class="activity-title">Tenant acme: 3 ações executadas</div>
+            <div class="activity-meta">há 18 min · audit log</div>
+          </div>
+        </div>
+        <div class="activity-item">
+          <div class="activity-icon">⚡</div>
+          <div class="activity-body">
+            <div class="activity-title">Testes: 104 passaram</div>
+            <div class="activity-meta">há 23 min · pytest</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ FOOTER ═══════ -->
+<footer>
+  <div class="footer-tag">AI EMPIRE</div>
+  <div class="footer-meta">
+    SUA IA · SEU IMPÉRIO &nbsp;·&nbsp; v3.3 &nbsp;·&nbsp; 38+ serviços &nbsp;·&nbsp; MIT License
+  </div>
+</footer>
+
+</body>
+</html>
