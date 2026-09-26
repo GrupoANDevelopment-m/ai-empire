@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Login — AI Empire</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Cinzel:wght@500;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --gold-1: #d4a017; --gold-2: #b8860b; --gold-3: #8b6914; --gold-bright: #f4c430;
+    --bg-0: #050505; --bg-1: #0a0a0a; --bg-2: #111111;
+    --border: rgba(212, 160, 23, 0.18); --border-bright: rgba(212, 160, 23, 0.45);
+    --text: #e4e4e4; --text-dim: #888888; --text-bright: #ffffff;
+    --red: #ef4444; --green: #4ade80;
+  }
+  html { height: 100%; }
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg-0);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse at center, rgba(212, 160, 23, 0.1) 0%, transparent 60%),
+      radial-gradient(ellipse at top, rgba(139, 105, 20, 0.05) 0%, transparent 50%);
+    pointer-events: none;
+  }
+  body::after {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(212, 160, 23, 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(212, 160, 23, 0.025) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+    opacity: 0.4;
+  }
+
+  /* Login card */
+  .login-card {
+    position: relative;
+    z-index: 1;
+    background: linear-gradient(135deg, rgba(15, 15, 15, 0.95), rgba(5, 5, 5, 0.95));
+    border: 1px solid var(--border-bright);
+    border-radius: 16px;
+    padding: 3rem 2.5rem;
+    width: 100%;
+    max-width: 440px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6),
+                0 0 60px rgba(212, 160, 23, 0.15);
+    backdrop-filter: blur(20px);
+  }
+  .login-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--gold-1), transparent);
+  }
+
+  .brand {
+    display: flex; align-items: center; justify-content: center; gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+  .brand-mark {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold-3));
+    clip-path: polygon(50% 0%, 100% 35%, 80% 100%, 20% 100%, 0% 35%);
+    box-shadow: 0 0 20px rgba(212, 160, 23, 0.5);
+  }
+  .brand-text {
+    font-family: 'Cinzel', serif;
+    font-weight: 900;
+    font-size: 1.25rem;
+    letter-spacing: 0.1em;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold-1), var(--gold-3));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .login-title {
+    text-align: center;
+    font-family: 'Cinzel', serif;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-bright);
+    letter-spacing: 0.05em;
+    margin-bottom: 0.5rem;
+  }
+  .login-subtitle {
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin-bottom: 2rem;
+  }
+
+  .form-group {
+    margin-bottom: 1.25rem;
+  }
+  .form-label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.5rem;
+  }
+  .form-input {
+    width: 100%;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-bright);
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    outline: none;
+    transition: all 0.2s;
+  }
+  .form-input:focus {
+    border-color: var(--gold-1);
+    box-shadow: 0 0 0 3px rgba(212, 160, 23, 0.1);
+  }
+  .form-input::placeholder { color: var(--text-dim); }
+
+  .btn-login {
+    width: 100%;
+    background: linear-gradient(135deg, var(--gold-1), var(--gold-2));
+    color: var(--bg-0);
+    border: none;
+    padding: 0.85rem;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: inherit;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-top: 0.5rem;
+  }
+  .btn-login:hover:not(:disabled) {
+    box-shadow: 0 8px 24px rgba(212, 160, 23, 0.4);
+    transform: translateY(-1px);
+  }
+  .btn-login:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .error-banner {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-left: 3px solid var(--red);
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    color: var(--red);
+    font-size: 0.85rem;
+    margin-bottom: 1rem;
+    display: none;
+  }
+  .error-banner.active { display: block; }
+
+  .help-text {
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-top: 1.5rem;
+    line-height: 1.6;
+  }
+  .help-text code {
+    background: var(--bg-2);
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--gold-1);
+    font-size: 0.75rem;
+  }
+
+  .footer-text {
+    position: fixed;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    letter-spacing: 0.15em;
+    text-align: center;
+  }
+
+  .toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid var(--border-bright);
+    border-left: 3px solid var(--gold-1);
+    padding: 0.875rem 1rem;
+    border-radius: 6px;
+    color: var(--text); font-size: 0.85rem;
+    backdrop-filter: blur(10px);
+    z-index: 100;
+    animation: slideIn 0.3s ease-out;
+  }
+  @keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+</style>
+</head>
+<body>
+
+<div class="login-card">
+  <div class="brand">
+    <div class="brand-mark"></div>
+    <div class="brand-text">AI EMPIRE</div>
+  </div>
+
+  <h1 class="login-title">Entrar</h1>
+  <p class="login-subtitle">Acesso ao painel corporativo</p>
+
+  <div id="error-banner" class="error-banner"></div>
+
+  <form id="login-form">
+    <div class="form-group">
+      <label class="form-label" for="email">E-mail</label>
+      <input class="form-input" type="email" id="email" name="email"
+             placeholder="seu@email.com" autocomplete="username" required>
+    </div>
+    <div class="form-group">
+      <label class="form-label" for="password">Senha</label>
+      <input class="form-input" type="password" id="password" name="password"
+             placeholder="••••••••" autocomplete="current-password" required>
+    </div>
+    <button class="btn-login" type="submit" id="submit-btn">Entrar</button>
+  </form>
+
+  <div class="help-text">
+    Dev: <code>admin@empire.local</code> / <code>empire</code>
+  </div>
+</div>
+
+<div class="footer-text">
+  AI EMPIRE · SUA IA · SEU IMPÉRIO
+</div>
+
+<script>
+const API_HOST = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+  ? 'http://localhost:8123'
+  : `http://${location.hostname}:8123`;
+
+const form = document.getElementById('login-form');
+const errorBanner = document.getElementById('error-banner');
+const submitBtn = document.getElementById('submit-btn');
+
+function showError(msg) {
+  errorBanner.textContent = msg;
+  errorBanner.classList.add('active');
+  setTimeout(() => errorBanner.classList.remove('active'), 5000);
+}
+
+function toast(text, kind = 'info') {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = text;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 4000);
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Autenticando';
+
+  try {
+    const r = await fetch(`${API_HOST}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.detail || `${r.status} ${r.statusText}`);
+    }
+    const data = await r.json();
+    localStorage.setItem('empire.token', data.access_token);
+    localStorage.setItem('empire.tenant', data.tenant || 'default');
+    localStorage.setItem('empire.user', JSON.stringify(data.user || {}));
+    toast('Login realizado com sucesso');
+    setTimeout(() => {
+      const redirect = new URLSearchParams(location.search).get('redirect') || 'index.html';
+      location.href = redirect;
+    }, 500);
+  } catch (err) {
+    showError(err.message || 'Falha ao autenticar');
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Entrar';
+  }
+});
+
+// Auto-redirect if already logged in
+const existingToken = localStorage.getItem('empire.token');
+if (existingToken) {
+  fetch(`${API_HOST}/api/auth/me`, {
+    headers: { 'Authorization': `Bearer ${existingToken}` },
+  }).then(r => {
+    if (r.ok) {
+      const redirect = new URLSearchParams(location.search).get('redirect') || 'index.html';
+      location.href = redirect;
+    }
+  }).catch(() => {});
+}
+</script>
+
+</body>
+</html>

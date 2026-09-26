@@ -1,0 +1,132 @@
+# Minimal dev stack — enough to test WebSocket + channels live.
+# Includes: FastAPI server, Redis, Postgres, Ollama, Caddy reverse proxy.
+# No GPU required. No heavy media services (fooocus, etc).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#   open http://localhost:7777  (Caddy proxies to FastAPI + UI)
+
+name: ai-empire-dev
+
+services:
+  # ── Application server ────────────────────────────────────────────────────
+  orchestrator:
+    build:
+      context: ./orchestrator
+      dockerfile: Dockerfile
+    image: ai-empire-orchestrator:dev
+    container_name: ai-empire-orchestrator
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://empire:${POSTGRES_PASSWORD}@postgres:5432/ai_empire
+      REDIS_URL: redis://redis:6379/0
+      OLLAMA_URL: http://ollama:11434
+      EMPIRE_LOG_LEVEL: INFO
+      EMPIRE_CONFIG_PATH: /data/config.json
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+      JWT_ALG: HS256
+      CORS_ORIGINS: "*"
+    volumes:
+      - ./web:/app/web:ro
+      - ./empire:/app/empire:ro
+      - empire_data:/data
+    ports:
+      - "8123:8123"   # FastAPI direct
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+      ollama:   { condition: service_started }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8123/health').raise_for_status()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Postgres (audit log, approvals, config) ──────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai-empire-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: empire
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev-password}
+      POSTGRES_DB: ai_empire
+    volumes:
+      - ./config/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - empire_pg:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"  # localhost only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U empire -d ai_empire"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Redis (rate limit, channels queue) ───────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ai-empire-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    volumes:
+      - empire_redis:/data
+    ports:
+      - "127.0.0.1:6379:6379"  # localhost only
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Ollama (local LLM) ──────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ai-empire-ollama
+    restart: unless-stopped
+    # CPU-only — comment out if you have GPU
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #         count: all
+    volumes:
+      - empire_ollama:/root/.ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+    # Auto-pull a small model on first boot
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama serve &
+        SERVER_PID=$$!
+        sleep 5
+        echo "Pulling qwen2.5:0.5b (small, fast)..."
+        ollama pull qwen2.5:0.5b || true
+        echo "Pulling nomic-embed-text (embeddings)..."
+        ollama pull nomic-embed-text || true
+        wait $$SERVER_PID
+
+  # ── Caddy reverse proxy + UI host ───────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: ai-empire-caddy
+    restart: unless-stopped
+    ports:
+      - "7777:7777"   # Public entry point
+    volumes:
+      - ./config/caddy/Caddyfile.dev:/etc/caddy/Caddyfile:ro
+      - ./web/premium:/srv:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - orchestrator
+
+volumes:
+  empire_data:
+  empire_pg:
+  empire_redis:
+  empire_ollama:
+  caddy_data:
+  caddy_config:

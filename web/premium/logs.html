@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Logs & Auditoria — AI Empire</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Cinzel:wght@500;700;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --gold-1: #d4a017; --gold-2: #b8860b; --gold-3: #8b6914; --gold-bright: #f4c430;
+    --bg-0: #050505; --bg-1: #0a0a0a; --bg-2: #111111; --bg-3: #1a1a1a;
+    --border: rgba(212, 160, 23, 0.18); --border-bright: rgba(212, 160, 23, 0.45);
+    --text: #e4e4e4; --text-dim: #888888; --text-bright: #ffffff;
+    --green: #4ade80; --red: #ef4444; --amber: #f59e0b; --blue: #60a5fa;
+  }
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg-0); color: var(--text);
+    line-height: 1.6; min-height: 100vh; overflow-x: hidden;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse at top, rgba(212, 160, 23, 0.06) 0%, transparent 50%);
+    pointer-events: none; z-index: 0;
+  }
+  body::after {
+    content: ''; position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(212, 160, 23, 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(212, 160, 23, 0.025) 1px, transparent 1px);
+    background-size: 48px 48px; pointer-events: none; z-index: 0; opacity: 0.4;
+  }
+
+  /* NAV */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(5, 5, 5, 0.9); backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 2rem;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .nav-brand {
+    display: flex; align-items: center; gap: 0.75rem;
+    font-family: 'Cinzel', serif; font-weight: 900; font-size: 1.1rem;
+    letter-spacing: 0.08em;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold-1), var(--gold-3));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .nav-brand-mark {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold-3));
+    clip-path: polygon(50% 0%, 100% 35%, 80% 100%, 20% 100%, 0% 35%);
+    box-shadow: 0 0 20px rgba(212, 160, 23, 0.5);
+  }
+  .nav-links { display: flex; gap: 1.75rem; }
+  .nav-link {
+    color: var(--text-dim); text-decoration: none;
+    font-size: 0.8rem; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    transition: color 0.2s;
+  }
+  .nav-link:hover, .nav-link.active { color: var(--gold-bright); }
+  .nav-user {
+    display: flex; align-items: center; gap: 0.75rem;
+    font-size: 0.8rem; color: var(--text-dim);
+  }
+  .nav-user button {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-dim); padding: 0.4rem 0.75rem;
+    border-radius: 6px; font-size: 0.75rem;
+    cursor: pointer; font-family: inherit;
+  }
+  .nav-user button:hover { border-color: var(--gold-1); color: var(--gold-bright); }
+
+  /* MAIN */
+  main {
+    position: relative; z-index: 1;
+    padding: 6rem 2rem 3rem;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+  .page-title {
+    font-family: 'Cinzel', serif;
+    font-size: 2rem; font-weight: 700;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold-1));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 0.5rem;
+  }
+  .page-subtitle { color: var(--text-dim); font-size: 0.875rem; margin-bottom: 2rem; }
+
+  /* FILTERS PANEL */
+  .filters {
+    background: linear-gradient(135deg, rgba(15, 15, 15, 0.9), rgba(5, 5, 5, 0.9));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .filters-row {
+    display: grid;
+    grid-template-columns: 2fr repeat(4, 1fr) auto;
+    gap: 0.75rem;
+    align-items: end;
+  }
+  @media (max-width: 1100px) {
+    .filters-row { grid-template-columns: 1fr 1fr; }
+  }
+  .filter-field { display: flex; flex-direction: column; gap: 0.35rem; }
+  .filter-label {
+    font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--text-dim); font-weight: 600;
+  }
+  .filter-input, .filter-select {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.55rem 0.75rem;
+    border-radius: 6px;
+    font-family: inherit; font-size: 0.85rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .filter-input:focus, .filter-select:focus { border-color: var(--gold-1); }
+  .filter-input.code { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; }
+  .filter-actions { display: flex; gap: 0.5rem; }
+  .btn {
+    background: linear-gradient(135deg, var(--gold-1), var(--gold-2));
+    color: var(--bg-0); border: none;
+    padding: 0.55rem 1.25rem; border-radius: 6px;
+    font-weight: 600; font-size: 0.8rem;
+    cursor: pointer; font-family: inherit;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    transition: all 0.2s;
+  }
+  .btn:hover { box-shadow: 0 4px 16px rgba(212, 160, 23, 0.35); }
+  .btn.secondary {
+    background: transparent; color: var(--gold-bright);
+    border: 1px solid var(--border-bright);
+  }
+  .btn.secondary:hover { background: rgba(212, 160, 23, 0.08); box-shadow: none; }
+
+  /* RESULTS */
+  .results-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 1rem;
+    padding: 0 0.25rem;
+  }
+  .results-meta {
+    font-size: 0.8rem; color: var(--text-dim);
+  }
+  .results-meta strong { color: var(--gold-bright); }
+  .live-toggle {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.8rem;
+  }
+  .live-dot {
+    width: 8px; height: 8px;
+    background: var(--green); border-radius: 50%;
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  .live-dot.paused { background: var(--text-dim); box-shadow: none; animation: none; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* LOG TABLE */
+  .log-table {
+    background: linear-gradient(135deg, rgba(15, 15, 15, 0.9), rgba(5, 5, 5, 0.9));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .log-row {
+    display: grid;
+    grid-template-columns: 160px 100px 140px 200px 1fr;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid rgba(212, 160, 23, 0.05);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    align-items: center;
+  }
+  .log-row:hover { background: rgba(212, 160, 23, 0.03); }
+  .log-row.header {
+    background: rgba(212, 160, 23, 0.05);
+    color: var(--gold-bright);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    font-family: 'Inter', sans-serif;
+    padding: 1rem;
+    position: sticky; top: 0; z-index: 1;
+  }
+  .log-row:last-child { border-bottom: none; }
+  .log-ts { color: var(--text-dim); font-size: 0.75rem; }
+  .log-severity {
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    text-align: center;
+    width: fit-content;
+  }
+  .log-severity.info    { background: rgba(96, 165, 250, 0.15); color: var(--blue); border: 1px solid rgba(96, 165, 250, 0.3); }
+  .log-severity.warning { background: rgba(245, 158, 11, 0.15); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+  .log-severity.error   { background: rgba(239, 68, 68, 0.15);  color: var(--red);   border: 1px solid rgba(239, 68, 68, 0.3); }
+  .log-severity.success { background: rgba(74, 222, 128, 0.15); color: var(--green); border: 1px solid rgba(74, 222, 128, 0.3); }
+  .log-severity.debug   { background: rgba(136, 136, 136, 0.1); color: var(--text-dim); border: 1px solid var(--border); }
+  .log-actor {
+    color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .log-actor .tenant {
+    color: var(--gold-bright);
+    font-size: 0.7rem;
+    margin-right: 0.25rem;
+  }
+  .log-action { color: var(--text); }
+  .log-detail {
+    color: var(--text-dim);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 0.75rem;
+  }
+  .log-row:hover .log-detail {
+    overflow: visible; white-space: normal;
+    word-break: break-all;
+  }
+  .log-empty {
+    padding: 4rem 2rem; text-align: center; color: var(--text-dim);
+  }
+
+  /* PAGINATION */
+  .pagination {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 1rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+  .pagination-buttons { display: flex; gap: 0.5rem; }
+
+  /* DETAIL MODAL */
+  .modal-bg {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(8px);
+    z-index: 200;
+    display: none;
+    align-items: center; justify-content: center;
+  }
+  .modal-bg.active { display: flex; }
+  .modal {
+    background: var(--bg-1);
+    border: 1px solid var(--border-bright);
+    border-radius: 12px;
+    padding: 2rem;
+    max-width: 720px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 1.5rem;
+  }
+  .modal-title {
+    font-family: 'Cinzel', serif;
+    font-size: 1.1rem; font-weight: 700;
+    color: var(--gold-bright);
+  }
+  .modal-close {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-dim); width: 32px; height: 32px;
+    border-radius: 6px; cursor: pointer; font-size: 1rem;
+  }
+  .modal-close:hover { border-color: var(--red); color: var(--red); }
+  .modal-field {
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid rgba(212, 160, 23, 0.08);
+  }
+  .modal-field:last-child { border-bottom: none; }
+  .modal-field-label {
+    font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--text-dim);
+    font-weight: 600; margin-bottom: 0.35rem;
+  }
+  .modal-field-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem; color: var(--text);
+    word-break: break-all;
+  }
+  .modal-field-value.json {
+    background: var(--bg-2);
+    padding: 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    font-size: 0.75rem;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg-1); }
+  ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--gold-1), var(--gold-3)); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand">
+    <div class="nav-brand-mark"></div>
+    AI EMPIRE
+  </div>
+  <div class="nav-links">
+    <a class="nav-link" href="index.html">Dashboard</a>
+    <a class="nav-link" href="configuracoes.html">Configurações</a>
+    <a class="nav-link" href="logs.html">Logs</a>
+    <a class="nav-link" href="approvals.html">Aprovações</a>
+  </div>
+  <div class="nav-user">
+    <span id="user-name">carregando</span>
+    <button onclick="logout()">Sair</button>
+  </div>
+</nav>
+
+<main>
+  <h1 class="page-title">Logs e Auditoria</h1>
+  <p class="page-subtitle">Eventos append-only com redação de PII automática.</p>
+
+  <div class="filters">
+    <div class="filters-row">
+      <div class="filter-field">
+        <label class="filter-label">Buscar</label>
+        <input class="filter-input code" id="q" placeholder="texto, ação, ator...">
+      </div>
+      <div class="filter-field">
+        <label class="filter-label">Severidade</label>
+        <select class="filter-select" id="severity">
+          <option value="">Todas</option>
+          <option value="debug">debug</option>
+          <option value="info">info</option>
+          <option value="success">success</option>
+          <option value="warning">warning</option>
+          <option value="error">error</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label class="filter-label">Ação</label>
+        <select class="filter-select" id="action">
+          <option value="">Todas</option>
+          <option value="auth.login">auth.login</option>
+          <option value="auth.failed">auth.failed</option>
+          <option value="tool.call">tool.call</option>
+          <option value="tool.deny">tool.deny</option>
+          <option value="chat.message">chat.message</option>
+          <option value="outreach.send">outreach.send</option>
+          <option value="social.publish">social.publish</option>
+          <option value="channel.send">channel.send</option>
+          <option value="channel.error">channel.error</option>
+          <option value="config.update">config.update</option>
+          <option value="ratelimit.block">ratelimit.block</option>
+          <option value="pii.redact">pii.redact</option>
+        </select>
+      </div>
+      <div class="filter-field">
+        <label class="filter-label">De</label>
+        <input class="filter-input" type="datetime-local" id="from">
+      </div>
+      <div class="filter-field">
+        <label class="filter-label">Até</label>
+        <input class="filter-input" type="datetime-local" id="to">
+      </div>
+      <div class="filter-actions">
+        <button class="btn" onclick="applyFilters()">Aplicar</button>
+        <button class="btn secondary" onclick="clearFilters()">Limpar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="results-bar">
+    <div class="results-meta" id="results-meta">aguardando dados</div>
+    <div class="live-toggle">
+      <span class="live-dot paused" id="live-dot"></span>
+      <label>
+        <input type="checkbox" id="live-toggle" checked> Atualizar ao vivo
+      </label>
+    </div>
+  </div>
+
+  <div class="log-table" id="log-table">
+    <div class="log-row header">
+      <div>Timestamp</div>
+      <div>Severidade</div>
+      <div>Ator</div>
+      <div>Ação</div>
+      <div>Detalhe</div>
+    </div>
+    <div class="log-empty" id="log-empty">aguardando dados</div>
+  </div>
+
+  <div class="pagination">
+    <div id="page-info">—</div>
+    <div class="pagination-buttons">
+      <button class="btn secondary" onclick="prevPage()" id="prev-btn">← Anterior</button>
+      <button class="btn secondary" onclick="nextPage()" id="next-btn">Próxima →</button>
+    </div>
+  </div>
+</main>
+
+<div class="modal-bg" id="modal-bg" onclick="if(event.target===this) closeModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="modal-title">Detalhe do evento</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+const API_HOST = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+  ? 'http://localhost:8123'
+  : `http://${location.hostname}:8123`;
+const TOKEN = localStorage.getItem('empire.token') || '';
+const TENANT = localStorage.getItem('empire.tenant') || 'default';
+
+if (!TOKEN) location.href = 'login.html?redirect=logs.html';
+
+let state = {
+  q: '', severity: '', action: '', from: '', to: '',
+  limit: 50, cursor: null, prevCursors: [],
+  results: [],
+  hasMore: false, total: 0,
+  live: true,
+};
+
+document.getElementById('live-toggle').addEventListener('change', (e) => {
+  state.live = e.target.checked;
+  document.getElementById('live-dot').classList.toggle('paused', !state.live);
+});
+
+function authHeaders() {
+  return { 'Authorization': `Bearer ${TOKEN}`, 'X-Tenant': TENANT };
+}
+
+function logout() {
+  localStorage.removeItem('empire.token');
+  localStorage.removeItem('empire.user');
+  location.href = 'login.html';
+}
+
+async function loadUser() {
+  try {
+    const r = await fetch(`${API_HOST}/api/auth/me`, { headers: authHeaders() });
+    if (r.status === 401) { logout(); return; }
+    const u = await r.json();
+    document.getElementById('user-name').textContent = u.email || u.name || 'user';
+  } catch (e) {
+    document.getElementById('user-name').textContent = 'offline';
+  }
+}
+
+function applyFilters() {
+  state.q = document.getElementById('q').value.trim();
+  state.severity = document.getElementById('severity').value;
+  state.action = document.getElementById('action').value;
+  state.from = document.getElementById('from').value;
+  state.to = document.getElementById('to').value;
+  state.cursor = null;
+  state.prevCursors = [];
+  refresh();
+}
+
+function clearFilters() {
+  document.getElementById('q').value = '';
+  document.getElementById('severity').value = '';
+  document.getElementById('action').value = '';
+  document.getElementById('from').value = '';
+  document.getElementById('to').value = '';
+  applyFilters();
+}
+
+function buildQuery() {
+  const p = new URLSearchParams({ limit: state.limit });
+  if (state.q) p.set('q', state.q);
+  if (state.severity) p.set('severity', state.severity);
+  if (state.action) p.set('action', state.action);
+  if (state.from) p.set('from', new Date(state.from).toISOString());
+  if (state.to) p.set('to', new Date(state.to).toISOString());
+  if (state.cursor) p.set('cursor', state.cursor);
+  return p.toString();
+}
+
+async function refresh() {
+  try {
+    const r = await fetch(`${API_HOST}/api/audit?${buildQuery()}`, { headers: authHeaders() });
+    if (r.status === 401) { logout(); return; }
+    const data = await r.json();
+    state.results = data.results || [];
+    state.hasMore = data.has_more || false;
+    state.total = data.total || 0;
+    state.cursor = data.next_cursor || null;
+    render();
+  } catch (e) {
+    document.getElementById('log-empty').textContent = `erro: ${e.message}`;
+  }
+}
+
+function render() {
+  const table = document.getElementById('log-table');
+  const rows = Array.from(table.querySelectorAll('.log-row')).slice(1); // skip header
+  rows.forEach(r => r.remove());
+  const empty = document.getElementById('log-empty');
+  if (empty) empty.remove();
+
+  if (!state.results.length) {
+    const div = document.createElement('div');
+    div.className = 'log-empty';
+    div.id = 'log-empty';
+    div.textContent = state.live ? 'aguardando eventos ao vivo...' : 'nenhum evento encontrado';
+    table.appendChild(div);
+  } else {
+    state.results.forEach(r => table.appendChild(buildRow(r)));
+  }
+
+  document.getElementById('results-meta').innerHTML =
+    `<strong>${state.results.length}</strong> evento(s) carregado(s)` +
+    (state.total ? ` de <strong>${state.total.toLocaleString('pt-BR')}</strong> total` : '');
+  document.getElementById('page-info').textContent =
+    `página ${state.prevCursors.length + 1}`;
+  document.getElementById('prev-btn').disabled = state.prevCursors.length === 0;
+  document.getElementById('next-btn').disabled = !state.hasMore;
+}
+
+function buildRow(r) {
+  const div = document.createElement('div');
+  div.className = 'log-row';
+  div.style.cursor = 'pointer';
+  div.onclick = () => openModal(r);
+  div.innerHTML = `
+    <div class="log-ts">${formatTs(r.timestamp)}</div>
+    <div><span class="log-severity ${r.severity || 'info'}">${r.severity || 'info'}</span></div>
+    <div class="log-actor"><span class="tenant">${r.tenant || '—'}</span>${r.actor || '—'}</div>
+    <div class="log-action">${r.action || '—'}</div>
+    <div class="log-detail">${escapeHtml(r.detail || r.summary || JSON.stringify(r.metadata || {}))}</div>`;
+  return div;
+}
+
+function formatTs(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return ts;
+  return d.toLocaleString('pt-BR', { hour12: false });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function openModal(r) {
+  document.getElementById('modal-title').textContent = `${r.action} — ${formatTs(r.timestamp)}`;
+  const body = document.getElementById('modal-body');
+  body.innerHTML = `
+    <div class="modal-field"><div class="modal-field-label">ID</div>
+      <div class="modal-field-value">${r.id || '—'}</div></div>
+    <div class="modal-field"><div class="modal-field-label">Severidade</div>
+      <div class="modal-field-value">${r.severity || '—'}</div></div>
+    <div class="modal-field"><div class="modal-field-label">Ator</div>
+      <div class="modal-field-value">${r.tenant || '—'} / ${r.actor || '—'}</div></div>
+    <div class="modal-field"><div class="modal-field-label">IP origem</div>
+      <div class="modal-field-value">${r.ip || '—'}</div></div>
+    <div class="modal-field"><div class="modal-field-label">User-Agent</div>
+      <div class="modal-field-value">${r.user_agent || '—'}</div></div>
+    <div class="modal-field"><div class="modal-field-label">Metadados</div>
+      <div class="modal-field-value json">${escapeHtml(JSON.stringify(r.metadata || {}, null, 2))}</div></div>`;
+  document.getElementById('modal-bg').classList.add('active');
+}
+function closeModal() { document.getElementById('modal-bg').classList.remove('active'); }
+
+function nextPage() {
+  if (state.cursor) {
+    state.prevCursors.push(state.cursor);
+    refresh();
+  }
+}
+function prevPage() {
+  state.prevCursors.pop();
+  state.cursor = state.prevCursors[state.prevCursors.length - 1] || null;
+  refresh();
+}
+
+// Initial load
+loadUser();
+refresh();
+
+// Live updates every 3s
+setInterval(() => {
+  if (state.live) refresh();
+}, 3000);
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+    e.preventDefault();
+    document.getElementById('q').focus();
+  }
+  if (e.key === 'Escape') closeModal();
+});
+</script>
+
+</body>
+</html>
