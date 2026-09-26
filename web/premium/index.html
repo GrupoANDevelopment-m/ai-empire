@@ -3,31 +3,30 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Empire — Sua IA, Seu Império</title>
+<title>AI Empire — Painel Corporativo</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Cinzel:wght@500;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Cinzel:wght@500;700;900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
-  /* ═══════════════════════════════════════════════════════════════
-     RESET + BASE
-     ═══════════════════════════════════════════════════════════════ */
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
   :root {
-    --gold-1: #f9d976;
-    --gold-2: #f39f86;
-    --gold-3: #d4a017;
-    --gold-deep: #8b6914;
-    --gold-glow: #ffd700;
+    --gold-1: #d4a017;
+    --gold-2: #b8860b;
+    --gold-3: #8b6914;
+    --gold-bright: #f4c430;
     --bg-0: #050505;
     --bg-1: #0a0a0a;
     --bg-2: #111111;
     --bg-3: #1a1a1a;
-    --border: rgba(255, 215, 0, 0.15);
-    --border-bright: rgba(255, 215, 0, 0.4);
-    --text: #e8e8e8;
+    --bg-4: #222222;
+    --border: rgba(212, 160, 23, 0.18);
+    --border-bright: rgba(212, 160, 23, 0.45);
+    --text: #e4e4e4;
     --text-dim: #888888;
     --text-bright: #ffffff;
-    --shadow-gold: 0 0 40px rgba(255, 215, 0, 0.3);
+    --green: #4ade80;
+    --red: #ef4444;
+    --amber: #f59e0b;
   }
   html { scroll-behavior: smooth; }
   body {
@@ -37,15 +36,14 @@
     overflow-x: hidden;
     line-height: 1.6;
     min-height: 100vh;
-    position: relative;
   }
   body::before {
     content: '';
     position: fixed;
     inset: 0;
     background:
-      radial-gradient(ellipse at top, rgba(255, 215, 0, 0.08) 0%, transparent 50%),
-      radial-gradient(ellipse at bottom, rgba(184, 134, 11, 0.05) 0%, transparent 50%);
+      radial-gradient(ellipse at top, rgba(212, 160, 23, 0.06) 0%, transparent 50%),
+      radial-gradient(ellipse at bottom, rgba(139, 105, 20, 0.04) 0%, transparent 50%);
     pointer-events: none;
     z-index: 0;
   }
@@ -54,22 +52,30 @@
     position: fixed;
     inset: 0;
     background-image:
-      linear-gradient(rgba(255, 215, 0, 0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 215, 0, 0.03) 1px, transparent 1px);
-    background-size: 40px 40px;
+      linear-gradient(rgba(212, 160, 23, 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(212, 160, 23, 0.025) 1px, transparent 1px);
+    background-size: 48px 48px;
     pointer-events: none;
     z-index: 0;
-    opacity: 0.5;
+    opacity: 0.4;
   }
 
-  /* ═══════════════════════════════════════════════════════════════
-     NAV
-     ═══════════════════════════════════════════════════════════════ */
+  /* Three.js canvas */
+  #three-canvas {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.6;
+  }
+
+  /* ── NAV ─────────────────────────────────────────────── */
   nav {
     position: fixed;
     top: 0; left: 0; right: 0;
     z-index: 100;
-    background: rgba(5, 5, 5, 0.85);
+    background: rgba(5, 5, 5, 0.9);
     backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--border);
     padding: 1rem 2rem;
@@ -81,286 +87,250 @@
     display: flex; align-items: center; gap: 0.75rem;
     font-family: 'Cinzel', serif;
     font-weight: 900;
-    font-size: 1.25rem;
-    letter-spacing: 0.05em;
-    background: linear-gradient(135deg, var(--gold-1) 0%, var(--gold-2) 50%, var(--gold-3) 100%);
+    font-size: 1.1rem;
+    letter-spacing: 0.08em;
+    background: linear-gradient(135deg, var(--gold-bright) 0%, var(--gold-1) 50%, var(--gold-3) 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
   }
   .nav-brand-mark {
-    width: 32px; height: 32px;
-    background: linear-gradient(135deg, var(--gold-3), var(--gold-1));
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold-3));
     clip-path: polygon(50% 0%, 100% 35%, 80% 100%, 20% 100%, 0% 35%);
-    box-shadow: var(--shadow-gold);
+    box-shadow: 0 0 20px rgba(212, 160, 23, 0.5);
   }
-  .nav-links {
-    display: flex; gap: 2rem;
-    align-items: center;
-  }
+  .nav-links { display: flex; gap: 1.75rem; align-items: center; }
   .nav-link {
     color: var(--text-dim);
     text-decoration: none;
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
     transition: color 0.2s;
     position: relative;
   }
-  .nav-link:hover { color: var(--gold-1); }
+  .nav-link:hover { color: var(--gold-bright); }
+  .nav-link.active { color: var(--gold-bright); }
   .nav-link.active::after {
     content: '';
     position: absolute;
-    bottom: -8px; left: 0; right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, var(--gold-3), transparent);
+    bottom: -10px; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--gold-1), transparent);
   }
-  .nav-cta {
-    background: linear-gradient(135deg, var(--gold-3), var(--gold-deep));
-    color: var(--bg-0);
-    padding: 0.6rem 1.5rem;
+  .nav-status {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    padding: 0.5rem 0.875rem;
+    border: 1px solid var(--border);
     border-radius: 6px;
-    font-weight: 700;
-    font-size: 0.875rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    border: none;
-    cursor: pointer;
-    box-shadow: 0 4px 20px rgba(255, 215, 0, 0.3);
-    transition: all 0.3s;
+    background: rgba(20, 20, 20, 0.5);
   }
-  .nav-cta:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 30px rgba(255, 215, 0, 0.5);
+  .nav-status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 2s ease-in-out infinite;
   }
+  .nav-status-dot.offline { background: var(--text-dim); box-shadow: none; animation: none; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 
-  /* ═══════════════════════════════════════════════════════════════
-     HERO
-     ═══════════════════════════════════════════════════════════════ */
+  /* ── HERO ─────────────────────────────────────────────── */
   .hero {
-    min-height: 100vh;
+    min-height: 70vh;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 6rem 2rem 4rem;
+    padding: 7rem 2rem 3rem;
     position: relative;
     z-index: 1;
   }
   .hero-emblem {
-    perspective: 1500px;
-    margin-bottom: 3rem;
+    width: 280px; height: 280px;
+    margin-bottom: 2.5rem;
     position: relative;
   }
-  .hero-emblem-3d {
-    width: 320px; height: 320px;
-    position: relative;
-    transform-style: preserve-3d;
-    animation: rotate3d 20s linear infinite;
-  }
-  @keyframes rotate3d {
-    from { transform: rotateY(0deg) rotateX(10deg); }
-    to { transform: rotateY(360deg) rotateX(10deg); }
-  }
-  .emblem-ring {
+  .hero-emblem-ring {
     position: absolute;
     inset: 0;
-    border: 2px solid var(--gold-3);
+    border: 1px solid var(--gold-1);
     border-radius: 50%;
-    box-shadow: 0 0 60px rgba(255, 215, 0, 0.4),
-                inset 0 0 40px rgba(255, 215, 0, 0.2);
+    box-shadow: 0 0 50px rgba(212, 160, 23, 0.3),
+                inset 0 0 30px rgba(212, 160, 23, 0.15);
   }
-  .emblem-ring::before, .emblem-ring::after {
+  .hero-emblem-ring::before, .hero-emblem-ring::after {
     content: '';
     position: absolute;
-    inset: -20px;
+    inset: -16px;
     border: 1px solid var(--border-bright);
     border-radius: 50%;
     border-top-color: transparent;
     border-bottom-color: transparent;
-    animation: spin 8s linear infinite;
+    animation: spin 10s linear infinite;
   }
-  .emblem-ring::after {
-    inset: -40px;
+  .hero-emblem-ring::after {
+    inset: -32px;
     animation-direction: reverse;
-    animation-duration: 12s;
+    animation-duration: 14s;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-
-  .emblem-letter {
+  .hero-emblem-letter {
     position: absolute;
     top: 50%; left: 50%;
     transform: translate(-50%, -50%);
     font-family: 'Cinzel', serif;
-    font-size: 14rem;
+    font-size: 12rem;
     font-weight: 900;
     background: linear-gradient(135deg,
-      #8b6914 0%,
-      #d4a017 25%,
-      #ffd700 50%,
-      #f9d976 70%,
-      #8b6914 100%);
+      #8b6914 0%, #d4a017 25%, #f4c430 50%,
+      #d4a017 75%, #8b6914 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 10px 30px rgba(255, 215, 0, 0.5))
-            drop-shadow(0 0 60px rgba(255, 215, 0, 0.3));
+    filter: drop-shadow(0 8px 30px rgba(212, 160, 23, 0.4))
+            drop-shadow(0 0 50px rgba(212, 160, 23, 0.25));
     line-height: 1;
-    z-index: 2;
   }
-  .emblem-crown {
+  .hero-emblem-crown {
     position: absolute;
-    top: 18%; left: 50%;
+    top: 22%; left: 50%;
     transform: translateX(-50%);
-    font-size: 3rem;
-    filter: drop-shadow(0 0 20px rgba(255, 215, 0, 0.8));
-    z-index: 3;
+    width: 64px; height: 64px;
+    background:
+      linear-gradient(180deg, var(--gold-bright), var(--gold-2)) top center / 100% 60% no-repeat,
+      linear-gradient(180deg, var(--gold-2), var(--gold-3));
+    clip-path: polygon(
+      0% 100%, 0% 40%, 18% 40%, 18% 0%,
+      30% 40%, 50% 0%, 70% 40%, 82% 0%,
+      82% 40%, 100% 40%, 100% 100%);
+    filter: drop-shadow(0 0 20px rgba(212, 160, 23, 0.6));
   }
-  .emblem-orbit {
+  .hero-emblem-orbit {
     position: absolute;
     top: 50%; left: 50%;
-    width: 380px; height: 380px;
-    margin-top: -190px; margin-left: -190px;
+    width: 320px; height: 320px;
+    margin-top: -160px; margin-left: -160px;
     animation: spin 30s linear infinite;
-    z-index: 1;
   }
-  .orbit-dot {
+  .hero-emblem-orbit-dot {
     position: absolute;
-    width: 12px; height: 12px;
-    background: radial-gradient(circle, var(--gold-1) 0%, var(--gold-3) 60%, transparent 100%);
+    width: 8px; height: 8px;
+    background: var(--gold-bright);
     border-radius: 50%;
-    box-shadow: 0 0 20px var(--gold-glow);
+    box-shadow: 0 0 12px var(--gold-bright);
   }
 
   .hero-title {
     font-family: 'Cinzel', serif;
-    font-size: clamp(3rem, 8vw, 6rem);
+    font-size: clamp(2.5rem, 7vw, 5rem);
     font-weight: 900;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.15em;
     text-align: center;
     line-height: 1;
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
     background: linear-gradient(135deg,
-      #f9d976 0%,
-      #ffd700 30%,
-      #ffffff 50%,
-      #ffd700 70%,
-      #d4a017 100%);
+      #d4a017 0%, #f4c430 30%, #ffffff 50%,
+      #f4c430 70%, #d4a017 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
-    filter: drop-shadow(0 4px 20px rgba(255, 215, 0, 0.4));
+    filter: drop-shadow(0 4px 16px rgba(212, 160, 23, 0.35));
   }
   .hero-subtitle {
     font-family: 'Cinzel', serif;
-    font-size: clamp(1rem, 2.5vw, 1.5rem);
-    letter-spacing: 0.4em;
+    font-size: clamp(0.875rem, 1.8vw, 1.1rem);
+    letter-spacing: 0.5em;
     color: var(--gold-1);
-    margin-bottom: 3rem;
+    margin-bottom: 2.5rem;
     text-align: center;
     text-transform: uppercase;
     font-weight: 500;
   }
 
-  /* Feature wheel below hero */
-  .feature-wheel {
-    position: relative;
-    width: 100%;
-    max-width: 900px;
-    margin-top: 4rem;
-    padding: 2rem 0;
-  }
+  /* Feature grid below hero */
   .feature-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    max-width: 1100px;
+    width: 100%;
+    margin-top: 2rem;
   }
   .feature-chip {
-    background: linear-gradient(135deg, rgba(20, 20, 20, 0.8), rgba(10, 10, 10, 0.8));
+    background: linear-gradient(135deg, rgba(15, 15, 15, 0.7), rgba(5, 5, 5, 0.7));
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 1.25rem 1rem;
+    border-radius: 10px;
+    padding: 1.25rem 0.75rem;
     text-align: center;
     backdrop-filter: blur(10px);
     transition: all 0.3s;
     cursor: pointer;
-    position: relative;
-    overflow: hidden;
-  }
-  .feature-chip::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(circle at top, rgba(255, 215, 0, 0.15), transparent 70%);
-    opacity: 0;
-    transition: opacity 0.3s;
   }
   .feature-chip:hover {
-    transform: translateY(-4px);
+    transform: translateY(-3px);
     border-color: var(--border-bright);
-    box-shadow: 0 10px 40px rgba(255, 215, 0, 0.2);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 24px rgba(212, 160, 23, 0.15);
   }
-  .feature-chip:hover::before { opacity: 1; }
-  .feature-icon {
-    width: 48px; height: 48px;
-    margin: 0 auto 0.75rem;
-    display: flex; align-items: center; justify-content: center;
-    background: linear-gradient(135deg, var(--bg-3), var(--bg-2));
-    border: 1px solid var(--border);
-    border-radius: 50%;
-    color: var(--gold-1);
-    font-size: 1.5rem;
-  }
-  .feature-label {
-    font-size: 0.75rem;
+  .feature-chip-label {
+    font-size: 0.7rem;
     font-weight: 600;
     color: var(--text);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
   }
 
-  /* ═══════════════════════════════════════════════════════════════
-     METRICS BAR
-     ═══════════════════════════════════════════════════════════════ */
-  .metrics {
+  /* ── SECTIONS ─────────────────────────────────────────────── */
+  section {
     position: relative;
     z-index: 1;
-    padding: 4rem 2rem;
+    padding: 3rem 2rem;
     max-width: 1400px;
     margin: 0 auto;
   }
+  .section-header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+  }
   .section-title {
-    text-align: center;
-    margin-bottom: 3rem;
-  }
-  .section-eyebrow {
-    color: var(--gold-3);
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.3em;
-    margin-bottom: 0.75rem;
-  }
-  .section-h2 {
     font-family: 'Cinzel', serif;
-    font-size: clamp(2rem, 4vw, 3rem);
+    font-size: 1.5rem;
     font-weight: 700;
-    background: linear-gradient(135deg, var(--gold-1), var(--gold-3));
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--text-bright);
+    letter-spacing: 0.05em;
   }
+  .section-meta {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  .section-meta::before {
+    content: '';
+    width: 6px; height: 6px;
+    background: var(--green);
+    border-radius: 50%;
+    box-shadow: 0 0 6px var(--green);
+  }
+
+  /* ── METRICS GRID ─────────────────────────────────────────────── */
   .metrics-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 1.5rem;
+    gap: 1rem;
   }
   .metric-card {
-    background: linear-gradient(135deg, rgba(20, 20, 20, 0.6), rgba(5, 5, 5, 0.8));
+    background: linear-gradient(135deg, rgba(15, 15, 15, 0.8), rgba(5, 5, 5, 0.8));
     border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 1.75rem;
+    border-radius: 12px;
+    padding: 1.5rem;
     position: relative;
     overflow: hidden;
     transition: all 0.3s;
@@ -370,195 +340,148 @@
     position: absolute;
     top: 0; left: 0; right: 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent, var(--gold-3), transparent);
+    background: linear-gradient(90deg, transparent, var(--gold-1), transparent);
   }
   .metric-card:hover {
-    transform: translateY(-2px);
     border-color: var(--border-bright);
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4),
-                0 0 30px rgba(255, 215, 0, 0.1);
+    transform: translateY(-2px);
   }
   .metric-label {
     color: var(--text-dim);
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
     font-weight: 600;
   }
   .metric-value {
     font-family: 'Cinzel', serif;
-    font-size: 2.5rem;
+    font-size: 2rem;
     font-weight: 700;
-    background: linear-gradient(135deg, var(--gold-1), var(--gold-3));
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--gold-bright);
     line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .metric-value.empty {
+    color: var(--text-dim);
+    font-style: italic;
+    font-weight: 400;
+    font-size: 1.25rem;
+  }
+  .metric-value.loading::after {
+    content: '';
+    display: inline-block;
+    width: 8px; height: 8px;
+    margin-left: 0.5rem;
+    border: 1px solid var(--gold-1);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
   }
   .metric-delta {
-    margin-top: 0.75rem;
-    font-size: 0.75rem;
-    color: #4ade80;
+    margin-top: 0.5rem;
+    font-size: 0.7rem;
+    color: var(--text-dim);
     display: flex; align-items: center; gap: 0.25rem;
   }
-  .metric-delta.down { color: #ef4444; }
+  .metric-delta.up { color: var(--green); }
+  .metric-delta.down { color: var(--red); }
 
-  /* ═══════════════════════════════════════════════════════════════
-     FEATURES GRID (Big cards)
-     ═══════════════════════════════════════════════════════════════ */
-  .features {
-    position: relative;
-    z-index: 1;
-    padding: 4rem 2rem;
-    max-width: 1400px;
-    margin: 0 auto;
-  }
-  .features-grid {
+  /* ── CHANNELS (Networks) ─────────────────────────────────────────────── */
+  .channels-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: 1.5rem;
-    margin-top: 3rem;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
   }
-  .feature-card {
-    background: linear-gradient(135deg, rgba(15, 15, 15, 0.9), rgba(5, 5, 5, 0.9));
+  .channel-card {
+    background: linear-gradient(135deg, rgba(15, 15, 15, 0.8), rgba(5, 5, 5, 0.8));
     border: 1px solid var(--border);
-    border-radius: 20px;
-    padding: 2rem;
-    position: relative;
-    overflow: hidden;
-    transition: all 0.4s;
+    border-radius: 10px;
+    padding: 1.25rem;
+    transition: all 0.3s;
     cursor: pointer;
   }
-  .feature-card::before {
-    content: '';
-    position: absolute;
-    top: -50%; left: -50%;
-    width: 200%; height: 200%;
-    background: radial-gradient(circle at center, rgba(255, 215, 0, 0.1) 0%, transparent 40%);
-    opacity: 0;
-    transition: opacity 0.4s;
-    pointer-events: none;
-  }
-  .feature-card:hover::before { opacity: 1; }
-  .feature-card:hover {
+  .channel-card:hover {
     border-color: var(--border-bright);
-    transform: translateY(-4px);
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5),
-                0 0 40px rgba(255, 215, 0, 0.15);
+    transform: translateY(-2px);
   }
-  .feature-card-header {
-    display: flex; align-items: center; gap: 1rem;
-    margin-bottom: 1rem;
+  .channel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 0.75rem;
   }
-  .feature-card-icon {
-    width: 56px; height: 56px;
-    display: flex; align-items: center; justify-content: center;
-    background: linear-gradient(135deg, var(--gold-3), var(--gold-deep));
-    border-radius: 12px;
-    font-size: 1.75rem;
-    box-shadow: 0 4px 20px rgba(255, 215, 0, 0.3);
-  }
-  .feature-card-title {
-    font-size: 1.25rem;
-    font-weight: 700;
+  .channel-name {
+    font-weight: 600;
+    font-size: 0.875rem;
     color: var(--text-bright);
   }
-  .feature-card-status {
-    margin-left: auto;
-    font-size: 0.7rem;
-    padding: 0.25rem 0.5rem;
+  .channel-status {
+    font-size: 0.65rem;
+    padding: 0.2rem 0.5rem;
     border-radius: 4px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
-  .status-active {
-    background: rgba(74, 222, 128, 0.15);
-    color: #4ade80;
+  .channel-status.connected {
+    background: rgba(74, 222, 128, 0.12);
+    color: var(--green);
     border: 1px solid rgba(74, 222, 128, 0.3);
   }
-  .status-idle {
-    background: rgba(255, 215, 0, 0.1);
+  .channel-status.disconnected {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--red);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+  }
+  .channel-status.unconfigured {
+    background: rgba(212, 160, 23, 0.08);
     color: var(--gold-1);
     border: 1px solid var(--border-bright);
   }
-  .feature-card-desc {
+  .channel-meta {
+    font-size: 0.75rem;
     color: var(--text-dim);
-    font-size: 0.875rem;
-    line-height: 1.6;
-    margin-bottom: 1.5rem;
   }
-  .feature-card-stats {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1rem;
-    padding-top: 1.25rem;
-    border-top: 1px solid var(--border);
-  }
-  .mini-stat-value {
-    font-family: 'Cinzel', serif;
-    font-size: 1.25rem;
-    font-weight: 700;
-    color: var(--gold-1);
-  }
-  .mini-stat-label {
-    font-size: 0.65rem;
-    color: var(--text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-top: 0.25rem;
+  .channel-meta strong {
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
   }
 
-  /* ═══════════════════════════════════════════════════════════════
-     COMMAND CENTER (chat + activity)
-     ═══════════════════════════════════════════════════════════════ */
-  .command {
-    position: relative;
-    z-index: 1;
-    padding: 4rem 2rem;
-    max-width: 1400px;
-    margin: 0 auto;
-  }
-  .command-grid {
+  /* ── PANELS (Command Center) ─────────────────────────────────────────────── */
+  .panels-grid {
     display: grid;
     grid-template-columns: 2fr 1fr;
-    gap: 1.5rem;
-    margin-top: 3rem;
+    gap: 1rem;
   }
-  @media (max-width: 900px) {
-    .command-grid { grid-template-columns: 1fr; }
+  @media (max-width: 1000px) {
+    .panels-grid { grid-template-columns: 1fr; }
   }
   .panel {
     background: linear-gradient(135deg, rgba(15, 15, 15, 0.9), rgba(5, 5, 5, 0.9));
     border: 1px solid var(--border);
-    border-radius: 16px;
+    border-radius: 12px;
     overflow: hidden;
   }
   .panel-header {
-    padding: 1.25rem 1.5rem;
+    padding: 1rem 1.25rem;
     border-bottom: 1px solid var(--border);
     display: flex; align-items: center; gap: 0.75rem;
-    background: linear-gradient(180deg, rgba(255, 215, 0, 0.03), transparent);
+    background: linear-gradient(180deg, rgba(212, 160, 23, 0.03), transparent);
   }
   .panel-title {
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     font-weight: 600;
     color: var(--text-bright);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.08em;
   }
   .panel-dot {
-    width: 8px; height: 8px;
+    width: 6px; height: 6px;
     background: var(--gold-1);
     border-radius: 50%;
-    box-shadow: 0 0 10px var(--gold-glow);
-    animation: pulse 2s ease-in-out infinite;
+    box-shadow: 0 0 8px var(--gold-1);
   }
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
+  .panel-dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); }
   .panel-actions {
     margin-left: auto;
     display: flex; gap: 0.5rem;
@@ -567,174 +490,219 @@
     background: transparent;
     border: 1px solid var(--border);
     color: var(--text-dim);
-    padding: 0.35rem 0.75rem;
-    border-radius: 6px;
-    font-size: 0.75rem;
+    padding: 0.3rem 0.65rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
     cursor: pointer;
     transition: all 0.2s;
+    font-family: inherit;
   }
   .panel-action:hover {
     border-color: var(--border-bright);
-    color: var(--gold-1);
+    color: var(--gold-bright);
   }
 
-  /* Chat panel */
+  /* Chat */
   .chat-transcript {
-    padding: 1.5rem;
-    height: 360px;
+    padding: 1rem 1.25rem;
+    height: 400px;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.75rem;
   }
   .chat-msg {
-    max-width: 80%;
-    padding: 0.875rem 1.125rem;
-    border-radius: 12px;
-    font-size: 0.875rem;
+    max-width: 85%;
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    font-size: 0.85rem;
     line-height: 1.5;
+    word-wrap: break-word;
   }
   .chat-msg.user {
     align-self: flex-end;
-    background: linear-gradient(135deg, var(--gold-3), var(--gold-deep));
+    background: linear-gradient(135deg, var(--gold-1), var(--gold-2));
     color: var(--bg-0);
     font-weight: 500;
-    border-bottom-right-radius: 4px;
+    border-bottom-right-radius: 3px;
   }
   .chat-msg.agent {
     align-self: flex-start;
     background: rgba(20, 20, 20, 0.9);
     border: 1px solid var(--border);
     color: var(--text);
-    border-bottom-left-radius: 4px;
+    border-bottom-left-radius: 3px;
   }
-  .chat-msg-time {
+  .chat-msg.system {
+    align-self: center;
+    background: rgba(212, 160, 23, 0.08);
+    border: 1px solid var(--border);
+    color: var(--gold-1);
+    font-size: 0.75rem;
+    padding: 0.5rem 0.875rem;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .chat-msg.tool {
+    align-self: flex-start;
+    background: rgba(212, 160, 23, 0.05);
+    border: 1px solid var(--border);
+    color: var(--gold-bright);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    padding: 0.6rem 0.875rem;
+    border-radius: 8px;
+  }
+  .chat-msg-meta {
     display: block;
     font-size: 0.65rem;
     opacity: 0.6;
     margin-top: 0.25rem;
-  }
-  .chat-msg.tool {
-    align-self: flex-start;
-    background: rgba(255, 215, 0, 0.08);
-    border: 1px solid var(--border);
-    color: var(--gold-1);
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.75rem;
-    padding: 0.75rem 1rem;
-    border-radius: 8px;
-    display: flex; align-items: center; gap: 0.5rem;
   }
-  .chat-msg.tool::before {
-    content: '⚡';
-    color: var(--gold-3);
+  .chat-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    gap: 0.5rem;
   }
 
-  .chat-input {
-    padding: 1.25rem;
+  .chat-input-row {
+    padding: 1rem 1.25rem;
     border-top: 1px solid var(--border);
-    display: flex; gap: 0.75rem;
+    display: flex; gap: 0.5rem;
     background: rgba(0, 0, 0, 0.3);
   }
-  .chat-input input {
+  .chat-input-row input {
     flex: 1;
     background: var(--bg-2);
     border: 1px solid var(--border);
     color: var(--text);
-    padding: 0.75rem 1rem;
-    border-radius: 8px;
+    padding: 0.65rem 0.875rem;
+    border-radius: 6px;
     font-family: inherit;
-    font-size: 0.875rem;
+    font-size: 0.85rem;
     outline: none;
     transition: border-color 0.2s;
   }
-  .chat-input input:focus { border-color: var(--gold-3); }
-  .chat-input input::placeholder { color: var(--text-dim); }
+  .chat-input-row input:focus { border-color: var(--gold-1); }
+  .chat-input-row input::placeholder { color: var(--text-dim); }
+  .chat-input-row input:disabled { opacity: 0.5; cursor: not-allowed; }
   .chat-send {
-    background: linear-gradient(135deg, var(--gold-3), var(--gold-deep));
+    background: linear-gradient(135deg, var(--gold-1), var(--gold-2));
     color: var(--bg-0);
     border: none;
-    padding: 0.75rem 1.5rem;
-    border-radius: 8px;
-    font-weight: 700;
+    padding: 0.65rem 1.25rem;
+    border-radius: 6px;
+    font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
+    font-family: inherit;
+    font-size: 0.85rem;
   }
-  .chat-send:hover { box-shadow: 0 4px 20px rgba(255, 215, 0, 0.4); }
+  .chat-send:hover:not(:disabled) { box-shadow: 0 4px 16px rgba(212, 160, 23, 0.35); }
+  .chat-send:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  /* Activity panel */
+  /* Activity feed */
   .activity-list {
-    padding: 1rem;
-    display: flex; flex-direction: column; gap: 0.75rem;
+    padding: 0.75rem;
+    display: flex; flex-direction: column; gap: 0.5rem;
   }
   .activity-item {
     display: flex; align-items: flex-start; gap: 0.75rem;
-    padding: 0.875rem;
-    border-radius: 8px;
-    background: rgba(20, 20, 20, 0.5);
-    border-left: 3px solid var(--gold-3);
-  }
-  .activity-icon {
-    width: 32px; height: 32px;
-    background: linear-gradient(135deg, var(--bg-3), var(--bg-2));
-    border-radius: 8px;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--gold-1);
-    font-size: 1rem;
-    flex-shrink: 0;
+    padding: 0.75rem;
+    border-radius: 6px;
+    background: rgba(20, 20, 20, 0.4);
+    border-left: 2px solid var(--gold-1);
   }
   .activity-body { flex: 1; min-width: 0; }
   .activity-title {
     font-size: 0.8rem;
-    font-weight: 600;
+    font-weight: 500;
     color: var(--text-bright);
   }
   .activity-meta {
     font-size: 0.7rem;
     color: var(--text-dim);
     margin-top: 0.25rem;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .activity-empty {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.8rem;
   }
 
-  /* ═══════════════════════════════════════════════════════════════
-     FOOTER
-     ═══════════════════════════════════════════════════════════════ */
+  /* ── FOOTER ─────────────────────────────────────────────── */
   footer {
     position: relative;
     z-index: 1;
-    padding: 3rem 2rem;
+    padding: 2.5rem 2rem;
     border-top: 1px solid var(--border);
     text-align: center;
     background: var(--bg-1);
+    margin-top: 3rem;
   }
   .footer-tag {
     font-family: 'Cinzel', serif;
-    font-size: 1.5rem;
+    font-size: 1.1rem;
     font-weight: 900;
-    background: linear-gradient(135deg, var(--gold-1), var(--gold-3));
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold-1));
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
-    letter-spacing: 0.2em;
-    margin-bottom: 1rem;
+    letter-spacing: 0.25em;
+    margin-bottom: 0.5rem;
   }
   .footer-meta {
     color: var(--text-dim);
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     letter-spacing: 0.1em;
+  }
+
+  /* Toast notifications */
+  .toast-stack {
+    position: fixed;
+    bottom: 24px; right: 24px;
+    z-index: 200;
+    display: flex; flex-direction: column;
+    gap: 0.5rem;
+  }
+  .toast {
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid var(--border-bright);
+    border-left: 3px solid var(--gold-1);
+    padding: 0.875rem 1rem;
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 0.85rem;
+    max-width: 320px;
+    backdrop-filter: blur(10px);
+    animation: slideIn 0.3s ease-out;
+  }
+  @keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
   }
 
   /* Scrollbar */
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: var(--bg-1); }
   ::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, var(--gold-3), var(--gold-deep));
+    background: linear-gradient(180deg, var(--gold-1), var(--gold-3));
     border-radius: 3px;
   }
 </style>
 </head>
 <body>
 
-<!-- ═══════ NAV ═══════ -->
+<canvas id="three-canvas"></canvas>
+
+<!-- ─── NAV ──────────────────────────────────────────── -->
 <nav>
   <div class="nav-brand">
     <div class="nav-brand-mark"></div>
@@ -742,395 +710,773 @@
   </div>
   <div class="nav-links">
     <a class="nav-link active" href="#dashboard">Dashboard</a>
-    <a class="nav-link" href="#agentes">Agentes</a>
-    <a class="nav-link" href="#automacao">Automação</a>
-    <a class="nav-link" href="#analytics">Analytics</a>
+    <a class="nav-link" href="#metricas">Métricas</a>
+    <a class="nav-link" href="#canais">Canais</a>
     <a class="nav-link" href="#comando">Comando</a>
-    <button class="nav-cta">+ Novo Agente</button>
+    <a class="nav-link" href="/configuracoes.html">Configurações</a>
+  </div>
+  <div class="nav-status" id="connection-status">
+    <span class="nav-status-dot" id="status-dot"></span>
+    <span id="status-text">Conectando</span>
   </div>
 </nav>
 
-<!-- ═══════ HERO ═══════ -->
-<section class="hero">
+<!-- ─── HERO ──────────────────────────────────────────── -->
+<section class="hero" id="dashboard">
   <div class="hero-emblem">
-    <div class="hero-emblem-3d">
-      <div class="emblem-orbit">
-        <div class="orbit-dot" style="top: -6px; left: 50%;"></div>
-        <div class="orbit-dot" style="top: 50%; right: -6px;"></div>
-        <div class="orbit-dot" style="bottom: -6px; left: 50%;"></div>
-        <div class="orbit-dot" style="top: 50%; left: -6px;"></div>
-      </div>
-      <div class="emblem-ring"></div>
-      <div class="emblem-crown">♛</div>
-      <div class="emblem-letter">A</div>
+    <div class="hero-emblem-ring"></div>
+    <div class="hero-emblem-orbit">
+      <div class="hero-emblem-orbit-dot" style="top: -4px; left: 50%;"></div>
+      <div class="hero-emblem-orbit-dot" style="top: 50%; right: -4px;"></div>
+      <div class="hero-emblem-orbit-dot" style="bottom: -4px; left: 50%;"></div>
+      <div class="hero-emblem-orbit-dot" style="top: 50%; left: -4px;"></div>
     </div>
+    <div class="hero-emblem-crown"></div>
+    <div class="hero-emblem-letter">A</div>
   </div>
 
   <h1 class="hero-title">AI EMPIRE</h1>
   <div class="hero-subtitle">Sua IA · Seu Império</div>
 
-  <div class="feature-wheel">
-    <div class="feature-grid">
-      <div class="feature-chip">
-        <div class="feature-icon">▶</div>
-        <div class="feature-label">Cria Vídeos</div>
-      </div>
-      <div class="feature-chip">
-        <div class="feature-icon">◉</div>
-        <div class="feature-label">Busca Clientes</div>
-      </div>
-      <div class="feature-chip">
-        <div class="feature-icon">👁</div>
-        <div class="feature-label">Assiste Vídeos</div>
-      </div>
-      <div class="feature-chip">
-        <div class="feature-icon">⚇</div>
-        <div class="feature-label">Responde Clientes</div>
-      </div>
-      <div class="feature-chip">
-        <div class="feature-icon">✉</div>
-        <div class="feature-label">Responde E-mails</div>
-      </div>
-      <div class="feature-chip">
-        <div class="feature-icon">📋</div>
-        <div class="feature-label">Digita Documentos</div>
-      </div>
-      <div class="feature-chip">
-        <div class="feature-icon">💬</div>
-        <div class="feature-label">Redes Públicas</div>
-      </div>
-      <div class="feature-chip">
-        <div class="feature-icon">📊</div>
-        <div class="feature-label">Gera Leads</div>
-      </div>
-      <div class="feature-chip">
-        <div class="feature-icon">🗄</div>
-        <div class="feature-label">CRM</div>
-      </div>
-      <div class="feature-chip">
-        <div class="feature-icon">⚡</div>
-        <div class="feature-label">E muito mais</div>
-      </div>
+  <div class="feature-grid">
+    <div class="feature-chip"><div class="feature-chip-label">Produzir Vídeos</div></div>
+    <div class="feature-chip"><div class="feature-chip-label">Buscar Clientes</div></div>
+    <div class="feature-chip"><div class="feature-chip-label">Assistir Conteúdo</div></div>
+    <div class="feature-chip"><div class="feature-chip-label">Atender Leads</div></div>
+    <div class="feature-chip"><div class="feature-chip-label">Triagem de E-mails</div></div>
+    <div class="feature-chip"><div class="feature-chip-label">Redigir Documentos</div></div>
+    <div class="feature-chip"><div class="feature-chip-label">Publicar em Redes</div></div>
+    <div class="feature-chip"><div class="feature-chip-label">Qualificar Leads</div></div>
+    <div class="feature-chip"><div class="feature-chip-label">Gestão CRM</div></div>
+    <div class="feature-chip"><div class="feature-chip-label">Mais recursos</div></div>
+  </div>
+</section>
+
+<!-- ─── METRICS ──────────────────────────────────────────── -->
+<section id="metricas">
+  <div class="section-header">
+    <h2 class="section-title">Métricas Operacionais</h2>
+    <div class="section-meta">Tempo real · Prometheus</div>
+  </div>
+  <div class="metrics-grid" id="metrics-grid">
+    <div class="metric-card">
+      <div class="metric-label">Agentes ativos</div>
+      <div class="metric-value loading" data-metric="agents_active">—</div>
+      <div class="metric-delta" data-delta="agents_active">aguardando dados</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Leads totais</div>
+      <div class="metric-value loading" data-metric="leads_total">—</div>
+      <div class="metric-delta" data-delta="leads_total">aguardando dados</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Mensagens enviadas hoje</div>
+      <div class="metric-value loading" data-metric="messages_sent_today">—</div>
+      <div class="metric-delta" data-delta="messages_sent_today">aguardando dados</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Tokens consumidos hoje</div>
+      <div class="metric-value loading" data-metric="tokens_today">—</div>
+      <div class="metric-delta" data-delta="tokens_today">aguardando dados</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Vídeos gerados</div>
+      <div class="metric-value loading" data-metric="videos_generated">—</div>
+      <div class="metric-delta" data-delta="videos_generated">aguardando dados</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Imagens geradas</div>
+      <div class="metric-value loading" data-metric="images_generated">—</div>
+      <div class="metric-delta" data-delta="images_generated">aguardando dados</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Uptime (24h)</div>
+      <div class="metric-value loading" data-metric="uptime_24h">—</div>
+      <div class="metric-delta" data-delta="uptime_24h">aguardando dados</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Latência p99</div>
+      <div class="metric-value loading" data-metric="latency_p99">—</div>
+      <div class="metric-delta" data-delta="latency_p99">aguardando dados</div>
     </div>
   </div>
 </section>
 
-<!-- ═══════ METRICS ═══════ -->
-<section class="metrics" id="dashboard">
-  <div class="section-title">
-    <div class="section-eyebrow">Performance em tempo real</div>
-    <h2 class="section-h2">Métricas do Império</h2>
+<!-- ─── CHANNELS (Networks) ──────────────────────────────────────────── -->
+<section id="canais">
+  <div class="section-header">
+    <h2 class="section-title">Canais Conectados</h2>
+    <div class="section-meta" id="channels-meta">Carregando</div>
   </div>
-  <div class="metrics-grid">
-    <div class="metric-card">
-      <div class="metric-label">Agentes Ativos</div>
-      <div class="metric-value">12</div>
-      <div class="metric-delta">▲ 4 desde ontem</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">Leads Gerados (mês)</div>
-      <div class="metric-value">3.847</div>
-      <div class="metric-delta">▲ 27.3% vs. anterior</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">Receita Pipeline</div>
-      <div class="metric-value">R$ 2.4M</div>
-      <div class="metric-delta">▲ R$ 480k esta semana</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">Taxa de Conversão</div>
-      <div class="metric-value">18.6%</div>
-      <div class="metric-delta">▲ 2.1 pontos</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">E-mails Enviados</div>
-      <div class="metric-value">28.4k</div>
-      <div class="metric-delta">▲ 12% semanal</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">Vídeos Produzidos</div>
-      <div class="metric-value">247</div>
-      <div class="metric-delta">▲ 89 hoje</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">Uptime do Sistema</div>
-      <div class="metric-value">99.97%</div>
-      <div class="metric-delta">▲ SLO cumprido</div>
-    </div>
-    <div class="metric-card">
-      <div class="metric-label">Latência Média</div>
-      <div class="metric-value">340ms</div>
-      <div class="metric-delta down">▼ 60ms mais lento</div>
-    </div>
-  </div>
-</section>
-
-<!-- ═══════ FEATURES GRID ═══════ -->
-<section class="features" id="agentes">
-  <div class="section-title">
-    <div class="section-eyebrow">Capacidades operacionais</div>
-    <h2 class="section-h2">Agentes em Produção</h2>
-  </div>
-  <div class="features-grid">
-    <div class="feature-card">
-      <div class="feature-card-header">
-        <div class="feature-card-icon">▶</div>
-        <div class="feature-card-title">Estúdio de Vídeo IA</div>
-        <span class="feature-card-status status-active">Ativo</span>
+  <div class="channels-grid" id="channels-grid">
+    <div class="channel-card">
+      <div class="channel-header">
+        <div class="channel-name">WhatsApp</div>
+        <div class="channel-status unconfigured">Verificando</div>
       </div>
-      <p class="feature-card-desc">
-        Geração de vídeos em 3 tiers: GPU ComfyUI, CPU CogVideoX-2B e procedural ffmpeg. Até 4K, múltiplas proporções.
-      </p>
-      <div class="feature-card-stats">
-        <div>
-          <div class="mini-stat-value">247</div>
-          <div class="mini-stat-label">Produzidos</div>
-        </div>
-        <div>
-          <div class="mini-stat-value">2.4s</div>
-          <div class="mini-stat-label">Latência</div>
-        </div>
-        <div>
-          <div class="mini-stat-value">4K</div>
-          <div class="mini-stat-label">Resolução</div>
-        </div>
-      </div>
+      <div class="channel-meta">via Twilio Business</div>
     </div>
-
-    <div class="feature-card">
-      <div class="feature-card-header">
-        <div class="feature-card-icon">⚇</div>
-        <div class="feature-card-title">CRM Inteligente</div>
-        <span class="feature-card-status status-active">Ativo</span>
+    <div class="channel-card">
+      <div class="channel-header">
+        <div class="channel-name">Telegram</div>
+        <div class="channel-status unconfigured">Verificando</div>
       </div>
-      <p class="feature-card-desc">
-        Gestão completa de leads com scoring automático, segmentação por ICP e follow-up personalizado via IA.
-      </p>
-      <div class="feature-card-stats">
-        <div>
-          <div class="mini-stat-value">3.8k</div>
-          <div class="mini-stat-label">Leads</div>
-        </div>
-        <div>
-          <div class="mini-stat-value">92</div>
-          <div class="mini-stat-label">Quentes</div>
-        </div>
-        <div>
-          <div class="mini-stat-value">18.6%</div>
-          <div class="mini-stat-label">Conversão</div>
-        </div>
-      </div>
+      <div class="channel-meta">via Bot API</div>
     </div>
-
-    <div class="feature-card">
-      <div class="feature-card-header">
-        <div class="feature-card-icon">✉</div>
-        <div class="feature-card-title">Outreach Multicanal</div>
-        <span class="feature-card-status status-active">Ativo</span>
+    <div class="channel-card">
+      <div class="channel-header">
+        <div class="channel-name">Instagram</div>
+        <div class="channel-status unconfigured">Verificando</div>
       </div>
-      <p class="feature-card-desc">
-        E-mail, WhatsApp, LinkedIn e redes sociais. Personalização por IA com HITL para aprovações críticas.
-      </p>
-      <div class="feature-card-stats">
-        <div>
-          <div class="mini-stat-value">28k</div>
-          <div class="mini-stat-label">Enviados</div>
-        </div>
-        <div>
-          <div class="mini-stat-value">42%</div>
-          <div class="mini-stat-label">Open Rate</div>
-        </div>
-        <div>
-          <div class="mini-stat-value">11%</div>
-          <div class="mini-stat-label">Reply Rate</div>
-        </div>
-      </div>
+      <div class="channel-meta">via Meta Graph API</div>
     </div>
-
-    <div class="feature-card">
-      <div class="feature-card-header">
-        <div class="feature-card-icon">◉</div>
-        <div class="feature-card-title">Prospecção Ativa</div>
-        <span class="feature-card-status status-active">Ativo</span>
+    <div class="channel-card">
+      <div class="channel-header">
+        <div class="channel-name">Facebook</div>
+        <div class="channel-status unconfigured">Verificando</div>
       </div>
-      <p class="feature-card-desc">
-        Crawler Playwright + Chromium varre fontes públicas: LinkedIn, Maps, Reddit, diretórios setoriais.
-      </p>
-      <div class="feature-card-stats">
-        <div>
-          <div class="mini-stat-value">12</div>
-          <div class="mini-stat-label">Fontes</div>
-        </div>
-        <div>
-          <div class="mini-stat-value">847</div>
-          <div class="mini-stat-label">Hoje</div>
-        </div>
-        <div>
-          <div class="mini-stat-value">68%</div>
-          <div class="mini-stat-label">Qualificados</div>
-        </div>
-      </div>
+      <div class="channel-meta">via Meta Graph API</div>
     </div>
-
-    <div class="feature-card">
-      <div class="feature-card-header">
-        <div class="feature-card-icon">📋</div>
-        <div class="feature-card-title">Documentos IA</div>
-        <span class="feature-card-status status-idle">Em fila</span>
+    <div class="channel-card">
+      <div class="channel-header">
+        <div class="channel-name">X (Twitter)</div>
+        <div class="channel-status unconfigured">Verificando</div>
       </div>
-      <p class="feature-card-desc">
-        Propostas, contratos, relatórios e atas gerados por IA com templates corporativos e assinatura digital.
-      </p>
-      <div class="feature-card-stats">
-        <div>
-          <div class="mini-stat-value">1.2k</div>
-          <div class="mini-stat-label">Gerados</div>
-        </div>
-        <div>
-          <div class="mini-stat-value">38s</div>
-          <div class="mini-stat-label">Tempo médio</div>
-        </div>
-        <div>
-          <div class="mini-stat-value">99%</div>
-          <div class="mini-stat-label">Precisão</div>
-        </div>
-      </div>
+      <div class="channel-meta">via API v2</div>
     </div>
-
-    <div class="feature-card">
-      <div class="feature-card-header">
-        <div class="feature-card-icon">💬</div>
-        <div class="feature-card-title">Social Media</div>
-        <span class="feature-card-status status-active">Ativo</span>
+    <div class="channel-card">
+      <div class="channel-header">
+        <div class="channel-name">LinkedIn</div>
+        <div class="channel-status unconfigured">Verificando</div>
       </div>
-      <p class="feature-card-desc">
-        Publicação automática em Instagram, LinkedIn, X, Facebook com aprovação humana (HITL) sempre ativa.
-      </p>
-      <div class="feature-card-stats">
-        <div>
-          <div class="mini-stat-value">89</div>
-          <div class="mini-stat-label">Posts hoje</div>
-        </div>
-        <div>
-          <div class="mini-stat-value">412k</div>
-          <div class="mini-stat-label">Alcance</div>
-        </div>
-        <div>
-          <div class="mini-stat-value">8.4%</div>
-          <div class="mini-stat-label">Engajamento</div>
-        </div>
+      <div class="channel-meta">via Marketing API</div>
+    </div>
+    <div class="channel-card">
+      <div class="channel-header">
+        <div class="channel-name">Discord</div>
+        <div class="channel-status unconfigured">Verificando</div>
       </div>
+      <div class="channel-meta">via Webhooks + Bot</div>
+    </div>
+    <div class="channel-card">
+      <div class="channel-header">
+        <div class="channel-name">E-mail (SMTP)</div>
+        <div class="channel-status unconfigured">Verificando</div>
+      </div>
+      <div class="channel-meta">via SMTP/IMAP</div>
     </div>
   </div>
 </section>
 
-<!-- ═══════ COMMAND CENTER ═══════ -->
-<section class="command" id="comando">
-  <div class="section-title">
-    <div class="section-eyebrow">Centro de comando</div>
-    <h2 class="section-h2">IA Conversando em Tempo Real</h2>
+<!-- ─── COMMAND CENTER ──────────────────────────────────────────── -->
+<section id="comando">
+  <div class="section-header">
+    <h2 class="section-title">Centro de Comando</h2>
+    <div class="section-meta">WebSocket · LangGraph</div>
   </div>
-  <div class="command-grid">
+  <div class="panels-grid">
     <div class="panel">
       <div class="panel-header">
-        <span class="panel-dot"></span>
+        <span class="panel-dot" id="chat-dot"></span>
         <span class="panel-title">Conversa com agente</span>
         <div class="panel-actions">
-          <button class="panel-action">Limpar</button>
-          <button class="panel-action">Exportar</button>
+          <button class="panel-action" id="chat-clear">Limpar</button>
         </div>
       </div>
-      <div class="chat-transcript">
-        <div class="chat-msg user">
-          Encontre 20 CTOs de SaaS B2B no Brasil e manda um e-mail personalizado pra cada um
-          <span class="chat-msg-time">14:32</span>
-        </div>
-        <div class="chat-msg.tool">
-          ⚡ find_leads(goal="CTO SaaS B2B Brasil", limit=20)
-        </div>
-        <div class="chat-msg agent">
-          Encontrei 20 leads qualificados. Verifiquei cargo, empresa, porte e sinais de crescimento. <strong>Score médio: 87/100</strong>. Agora vou gerar e-mails personalizados com base no segmento de cada empresa.
-          <span class="chat-msg-time">14:32</span>
-        </div>
-        <div class="chat-msg tool">
-          ⚡ send_outreach(channel="email", template="cold-saas-v2")
-        </div>
-        <div class="chat-msg agent">
-          <strong>Aguardando aprovação humana</strong> — 20 e-mails prontos para envio. Por padrão, outreach é HITL-crítico. Revise abaixo ou aprove em lote:
-          <br><br>
-          ▸ Lead 1: Carlos Souza (Vercel Brasil) — "Notei que estão escalando..."
-          <br>▸ Lead 2: Ana Lima (Stripe) — "Vi sua palestra no..."
-          <br><br>
-          <em>+ 18 outros e-mails personalizados.</em>
-          <span class="chat-msg-time">14:33</span>
+      <div class="chat-transcript" id="chat-transcript">
+        <div class="chat-empty">
+          Aguardando conexão com agente LLM
         </div>
       </div>
-      <div class="chat-input">
-        <input type="text" placeholder="Comando para o agente... (ex: 'agora gera vídeo de demo')">
-        <button class="chat-send">Enviar ⚡</button>
+      <div class="chat-input-row">
+        <input type="text" id="chat-input"
+               placeholder="Digite uma instrução para o agente..."
+               autocomplete="off">
+        <button class="chat-send" id="chat-send">Enviar</button>
       </div>
     </div>
 
     <div class="panel">
       <div class="panel-header">
-        <span class="panel-dot"></span>
+        <span class="panel-dot live"></span>
         <span class="panel-title">Atividade recente</span>
       </div>
-      <div class="activity-list">
-        <div class="activity-item">
-          <div class="activity-icon">▶</div>
-          <div class="activity-body">
-            <div class="activity-title">Vídeo gerado: "Demo produto"</div>
-            <div class="activity-meta">há 2 min · T2-ffmpeg · 1.8s</div>
-          </div>
-        </div>
-        <div class="activity-item">
-          <div class="activity-icon">⚇</div>
-          <div class="activity-body">
-            <div class="activity-title">Lead qualificado: Carlos Souza</div>
-            <div class="activity-meta">há 5 min · score 92 · Vercel</div>
-          </div>
-        </div>
-        <div class="activity-item">
-          <div class="activity-icon">✉</div>
-          <div class="activity-body">
-            <div class="activity-title">20 e-mails enviados</div>
-            <div class="activity-meta">há 8 min · 42% open rate</div>
-          </div>
-        </div>
-        <div class="activity-item">
-          <div class="activity-icon">💬</div>
-          <div class="activity-body">
-            <div class="activity-title">Post publicado no LinkedIn</div>
-            <div class="activity-meta">há 12 min · 14k impressões</div>
-          </div>
-        </div>
-        <div class="activity-item">
-          <div class="activity-icon">🛡</div>
-          <div class="activity-body">
-            <div class="activity-title">Tenant acme: 3 ações executadas</div>
-            <div class="activity-meta">há 18 min · audit log</div>
-          </div>
-        </div>
-        <div class="activity-item">
-          <div class="activity-icon">⚡</div>
-          <div class="activity-body">
-            <div class="activity-title">Testes: 104 passaram</div>
-            <div class="activity-meta">há 23 min · pytest</div>
-          </div>
-        </div>
+      <div class="activity-list" id="activity-list">
+        <div class="activity-empty">Sem atividade registrada</div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ═══════ FOOTER ═══════ -->
+<!-- ─── FOOTER ──────────────────────────────────────────── -->
 <footer>
   <div class="footer-tag">AI EMPIRE</div>
   <div class="footer-meta">
-    SUA IA · SEU IMPÉRIO &nbsp;·&nbsp; v3.3 &nbsp;·&nbsp; 38+ serviços &nbsp;·&nbsp; MIT License
+    SUA IA · SEU IMPÉRIO &nbsp;·&nbsp; v3.3 &nbsp;·&nbsp; MIT License
   </div>
 </footer>
+
+<div class="toast-stack" id="toast-stack"></div>
+
+<!-- Three.js for 3D background -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+
+<!-- Real backend integration -->
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   CONFIG
+   ═══════════════════════════════════════════════════════════════ */
+const CONFIG = {
+  API_HOST:    location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+                  ? 'http://localhost:8123'
+                  : `http://${location.hostname}:8123`,
+  WS_PATH:     '/ws/agent',
+  TENANT:      localStorage.getItem('empire.tenant') || 'default',
+  POLL_MS:     5000,
+  TOAST_MS:    4000,
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   API CLIENT
+   ═══════════════════════════════════════════════════════════════ */
+class EmpireAPI {
+  constructor(baseURL, tenant) {
+    this.baseURL = baseURL;
+    this.tenant = tenant;
+    this.token = localStorage.getItem('empire.token') || '';
+  }
+
+  _headers() {
+    const h = { 'Content-Type': 'application/json', 'X-Tenant': this.tenant };
+    if (this.token) h['Authorization'] = `Bearer ${this.token}`;
+    return h;
+  }
+
+  async _fetch(path, opts = {}) {
+    const url = `${this.baseURL}${path}`;
+    const res = await fetch(url, {
+      ...opts,
+      headers: { ...this._headers(), ...(opts.headers || {}) },
+    });
+    if (!res.ok) {
+      const err = new Error(`${res.status} ${res.statusText}`);
+      err.status = res.status;
+      throw err;
+    }
+    return res.json();
+  }
+
+  async health() {
+    try {
+      return await this._fetch('/health');
+    } catch (e) {
+      return { status: 'unreachable', error: e.message };
+    }
+  }
+
+  async metrics() {
+    return this._fetch('/api/metrics/snapshot');
+  }
+
+  async channels() {
+    return this._fetch('/api/channels/status');
+  }
+
+  async activity(limit = 20) {
+    return this._fetch(`/api/activity?limit=${limit}`);
+  }
+
+  async sendChat(message, session) {
+    return this._fetch('/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message, session, tenant: this.tenant }),
+    });
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WEBSOCKET (Real LLM streaming)
+   ═══════════════════════════════════════════════════════════════ */
+class EmpireWS {
+  constructor(api) {
+    this.api = api;
+    this.ws = null;
+    this.listeners = new Set();
+    this.reconnectTimer = null;
+    this.shouldRun = true;
+  }
+
+  connect() {
+    if (this.ws) return;
+    const url = `${CONFIG.API_HOST.replace(/^http/, 'ws')}${CONFIG.WS_PATH}` +
+                `?tenant=${encodeURIComponent(this.api.tenant)}` +
+                (this.api.token ? `&token=${encodeURIComponent(this.api.token)}` : '');
+    try {
+      this.ws = new WebSocket(url);
+    } catch (e) {
+      this._scheduleReconnect();
+      return;
+    }
+    this.ws.onopen = () => {
+      this._setStatus('online', 'Online');
+      this._emit({ type: 'connection', status: 'open' });
+    };
+    this.ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        this._emit(msg);
+      } catch {}
+    };
+    this.ws.onerror = () => { /* will trigger onclose */ };
+    this.ws.onclose = () => {
+      this.ws = null;
+      this._setStatus('offline', 'Reconectando');
+      this._emit({ type: 'connection', status: 'closed' });
+      this._scheduleReconnect();
+    };
+  }
+
+  disconnect() {
+    this.shouldRun = false;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.ws) this.ws.close();
+  }
+
+  send(payload) {
+    if (!this.ws || this.ws.readyState !== 1) return false;
+    this.ws.send(JSON.stringify(payload));
+    return true;
+  }
+
+  on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
+  _emit(msg) { this.listeners.forEach(fn => fn(msg)); }
+  _setStatus(state, text) {
+    const dot = document.getElementById('status-dot');
+    const txt = document.getElementById('status-text');
+    if (dot) dot.classList.toggle('offline', state === 'offline');
+    if (txt) txt.textContent = text;
+  }
+  _scheduleReconnect() {
+    if (!this.shouldRun) return;
+    if (this.reconnectTimer) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, 3000);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   UI BINDINGS
+   ═══════════════════════════════════════════════════════════════ */
+class Dashboard {
+  constructor(api, ws) {
+    this.api = api;
+    this.ws = ws;
+    this.chatSession = `sess-${Date.now()}`;
+    this.init();
+  }
+
+  init() {
+    this.bindChat();
+    this.bindWS();
+    this.poll();
+    setInterval(() => this.poll(), CONFIG.POLL_MS);
+  }
+
+  bindChat() {
+    const input = document.getElementById('chat-input');
+    const send = document.getElementById('chat-send');
+    const clear = document.getElementById('chat-clear');
+    const handler = () => this.sendMessage();
+    send.addEventListener('click', handler);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') handler(); });
+    clear.addEventListener('click', () => {
+      const t = document.getElementById('chat-transcript');
+      t.innerHTML = '<div class="chat-empty">Conversa limpa</div>';
+      this.chatSession = `sess-${Date.now()}`;
+    });
+  }
+
+  bindWS() {
+    this.ws.on((msg) => {
+      if (msg.type === 'connection') return;
+      if (msg.type === 'token') this.appendAgentChunk(msg.content);
+      else if (msg.type === 'tool_call') this.appendTool(msg.name, msg.args);
+      else if (msg.type === 'tool_result') this.appendAgent(msg.result);
+      else if (msg.type === 'done') this.finalizeAgent();
+      else if (msg.type === 'error') this.appendSystem(`Erro: ${msg.error}`);
+    });
+  }
+
+  sendMessage() {
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (!text) return;
+    this.appendUser(text);
+    input.value = '';
+    if (this.ws.send({ type: 'message', content: text, session: this.chatSession, tenant: this.api.tenant })) {
+      // streaming started
+      this.startAgent();
+    } else {
+      // WS down — REST fallback
+      this.api.sendChat(text, this.chatSession)
+        .then(r => this.appendAgent(r.message || r.response || JSON.stringify(r)))
+        .catch(e => this.appendSystem(`Erro: ${e.message}`));
+    }
+  }
+
+  startAgent() {
+    const t = document.getElementById('chat-transcript');
+    const empty = t.querySelector('.chat-empty');
+    if (empty) empty.remove();
+    const div = document.createElement('div');
+    div.className = 'chat-msg agent';
+    div.dataset.streaming = 'true';
+    div.textContent = '';
+    t.appendChild(div);
+    t.scrollTop = t.scrollHeight;
+  }
+
+  appendAgentChunk(chunk) {
+    let el = document.querySelector('.chat-msg.agent[data-streaming="true"]');
+    if (!el) { this.startAgent(); el = document.querySelector('.chat-msg.agent[data-streaming="true"]'); }
+    el.textContent += chunk;
+    const t = document.getElementById('chat-transcript');
+    t.scrollTop = t.scrollHeight;
+  }
+
+  finalizeAgent() {
+    const el = document.querySelector('.chat-msg.agent[data-streaming="true"]');
+    if (el) {
+      el.removeAttribute('data-streaming');
+      const ts = document.createElement('span');
+      ts.className = 'chat-msg-meta';
+      ts.textContent = new Date().toLocaleTimeString();
+      el.appendChild(ts);
+    }
+  }
+
+  appendUser(text) {
+    const t = document.getElementById('chat-transcript');
+    const empty = t.querySelector('.chat-empty');
+    if (empty) empty.remove();
+    const div = document.createElement('div');
+    div.className = 'chat-msg user';
+    div.innerHTML = '';
+    div.appendChild(document.createTextNode(text));
+    const ts = document.createElement('span');
+    ts.className = 'chat-msg-meta';
+    ts.textContent = new Date().toLocaleTimeString();
+    div.appendChild(ts);
+    t.appendChild(div);
+    t.scrollTop = t.scrollHeight;
+  }
+
+  appendAgent(text) {
+    const t = document.getElementById('chat-transcript');
+    const empty = t.querySelector('.chat-empty');
+    if (empty) empty.remove();
+    const div = document.createElement('div');
+    div.className = 'chat-msg agent';
+    div.textContent = text;
+    const ts = document.createElement('span');
+    ts.className = 'chat-msg-meta';
+    ts.textContent = new Date().toLocaleTimeString();
+    div.appendChild(ts);
+    t.appendChild(div);
+    t.scrollTop = t.scrollHeight;
+  }
+
+  appendTool(name, args) {
+    const t = document.getElementById('chat-transcript');
+    const empty = t.querySelector('.chat-empty');
+    if (empty) empty.remove();
+    const div = document.createElement('div');
+    div.className = 'chat-msg tool';
+    div.textContent = `${name}(${JSON.stringify(args || {})})`;
+    t.appendChild(div);
+    t.scrollTop = t.scrollHeight;
+  }
+
+  appendSystem(text) {
+    const t = document.getElementById('chat-transcript');
+    const empty = t.querySelector('.chat-empty');
+    if (empty) empty.remove();
+    const div = document.createElement('div');
+    div.className = 'chat-msg system';
+    div.textContent = text;
+    t.appendChild(div);
+    t.scrollTop = t.scrollHeight;
+  }
+
+  async poll() {
+    await Promise.allSettled([
+      this.refreshHealth(),
+      this.refreshMetrics(),
+      this.refreshChannels(),
+      this.refreshActivity(),
+    ]);
+  }
+
+  async refreshHealth() {
+    const h = await this.api.health();
+    const dot = document.getElementById('chat-dot');
+    if (dot) {
+      dot.classList.toggle('live', h.status === 'ok' || h.status === 'healthy');
+    }
+  }
+
+  async refreshMetrics() {
+    try {
+      const data = await this.api.metrics();
+      this.renderMetrics(data);
+    } catch (e) {
+      this.renderMetricsEmpty();
+    }
+  }
+
+  renderMetrics(data) {
+    const map = {
+      agents_active:         data.agents_active,
+      leads_total:           data.leads_total,
+      messages_sent_today:   data.messages_sent_today,
+      tokens_today:          data.tokens_today,
+      videos_generated:      data.videos_generated,
+      images_generated:      data.images_generated,
+      uptime_24h:            data.uptime_24h,
+      latency_p99:           data.latency_p99_ms,
+    };
+    for (const [k, v] of Object.entries(map)) {
+      const el = document.querySelector(`[data-metric="${k}"]`);
+      const delta = document.querySelector(`[data-delta="${k}"]`);
+      if (!el) continue;
+      if (v == null || v === undefined) {
+        el.classList.add('empty', 'loading');
+        el.textContent = '—';
+        if (delta) { delta.className = 'metric-delta'; delta.textContent = 'sem dados'; }
+      } else {
+        el.classList.remove('empty', 'loading');
+        el.textContent = this.formatMetric(k, v);
+        if (delta) {
+          const d = this.deltaFor(k, data);
+          delta.className = `metric-delta ${d.direction || ''}`;
+          delta.textContent = d.text;
+        }
+      }
+    }
+  }
+
+  renderMetricsEmpty() {
+    document.querySelectorAll('[data-metric]').forEach(el => {
+      el.classList.add('empty', 'loading');
+      el.textContent = '—';
+    });
+    document.querySelectorAll('[data-delta]').forEach(el => {
+      el.className = 'metric-delta';
+      el.textContent = 'aguardando dados';
+    });
+  }
+
+  formatMetric(key, v) {
+    if (key === 'tokens_today') return Number(v).toLocaleString('pt-BR');
+    if (key === 'uptime_24h')    return `${Number(v).toFixed(2)}%`;
+    if (key === 'latency_p99')   return `${Math.round(v)} ms`;
+    if (key === 'leads_total' || key === 'messages_sent_today') return Number(v).toLocaleString('pt-BR');
+    return Number(v).toLocaleString('pt-BR');
+  }
+
+  deltaFor(key, data) {
+    const dir = data[`${key}_delta_pct`];
+    if (dir == null) return { text: 'aguardando próxima leitura', direction: '' };
+    const arrow = dir > 0 ? '▲' : dir < 0 ? '▼' : '—';
+    return {
+      text: `${arrow} ${Math.abs(dir).toFixed(1)}% vs. ontem`,
+      direction: dir > 0 ? 'up' : dir < 0 ? 'down' : ''
+    };
+  }
+
+  async refreshChannels() {
+    try {
+      const list = await this.api.channels();
+      this.renderChannels(list);
+    } catch (e) {
+      // leave default "Verificando"
+    }
+  }
+
+  renderChannels(list) {
+    const grid = document.getElementById('channels-grid');
+    const meta = document.getElementById('channels-meta');
+    if (!Array.isArray(list) || !list.length) return;
+    const map = {};
+    list.forEach(c => { map[c.name.toLowerCase()] = c; });
+    const cards = grid.querySelectorAll('.channel-card');
+    let connected = 0;
+    cards.forEach(card => {
+      const name = card.querySelector('.channel-name').textContent.trim();
+      const data = map[name.toLowerCase()];
+      const status = card.querySelector('.channel-status');
+      const metaCell = card.querySelector('.channel-meta');
+      if (!data) {
+        status.textContent = 'desconhecido';
+        status.className = 'channel-status unconfigured';
+        metaCell.textContent = data?.transport || metaCell.textContent;
+        return;
+      }
+      if (data.connected) {
+        status.textContent = 'conectado';
+        status.className = 'channel-status connected';
+        connected++;
+      } else {
+        status.textContent = 'desconectado';
+        status.className = 'channel-status disconnected';
+      }
+      if (data.messages_today != null) {
+        metaCell.innerHTML = `${data.transport || ''} · <strong>${data.messages_today}</strong> mensagens hoje`;
+      } else if (data.last_error) {
+        metaCell.textContent = `Erro: ${data.last_error}`;
+      }
+    });
+    if (meta) meta.textContent = `${connected}/${cards.length} conectados`;
+  }
+
+  async refreshActivity() {
+    try {
+      const items = await this.api.activity(15);
+      this.renderActivity(items);
+    } catch (e) {
+      // leave empty state
+    }
+  }
+
+  renderActivity(items) {
+    const list = document.getElementById('activity-list');
+    if (!Array.isArray(items) || !items.length) return;
+    list.innerHTML = '';
+    items.forEach(it => {
+      const div = document.createElement('div');
+      div.className = 'activity-item';
+      const body = document.createElement('div');
+      body.className = 'activity-body';
+      const title = document.createElement('div');
+      title.className = 'activity-title';
+      title.textContent = it.title || it.action || 'evento';
+      const meta = document.createElement('div');
+      meta.className = 'activity-meta';
+      meta.textContent = this.formatTime(it.timestamp) + (it.actor ? ` · ${it.actor}` : '');
+      body.appendChild(title);
+      body.appendChild(meta);
+      div.appendChild(body);
+      list.appendChild(div);
+    });
+  }
+
+  formatTime(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return ts;
+    return d.toLocaleString('pt-BR', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+  }
+
+  toast(text) {
+    const stack = document.getElementById('toast-stack');
+    const t = document.createElement('div');
+    t.className = 'toast';
+    t.textContent = text;
+    stack.appendChild(t);
+    setTimeout(() => t.remove(), CONFIG.TOAST_MS);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   THREE.JS BACKGROUND
+   ═══════════════════════════════════════════════════════════════ */
+async function initThree() {
+  try {
+    const THREE = await import('three');
+    const canvas = document.getElementById('three-canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.z = 8;
+
+    // Particle field
+    const N = 600;
+    const positions = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      positions[i*3]   = (Math.random() - 0.5) * 20;
+      positions[i*3+1] = (Math.random() - 0.5) * 20;
+      positions[i*3+2] = (Math.random() - 0.5) * 12;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const mat = new THREE.PointsMaterial({
+      size: 0.04, color: 0xd4a017, transparent: true, opacity: 0.6,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const points = new THREE.Points(geo, mat);
+    scene.add(points);
+
+    // Wireframe icosahedron
+    const ico = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(2.2, 0),
+      new THREE.MeshBasicMaterial({
+        color: 0xd4a017, wireframe: true, transparent: true, opacity: 0.08,
+      })
+    );
+    scene.add(ico);
+
+    // Outer icosahedron (rotates opposite direction)
+    const ico2 = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(3.2, 0),
+      new THREE.MeshBasicMaterial({
+        color: 0x8b6914, wireframe: true, transparent: true, opacity: 0.04,
+      })
+    );
+    scene.add(ico2);
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const t = performance.now() * 0.0003;
+      points.rotation.y = t;
+      points.rotation.x = t * 0.5;
+      ico.rotation.x = t * 0.6;
+      ico.rotation.y = t * 0.4;
+      ico2.rotation.x = -t * 0.3;
+      ico2.rotation.z = -t * 0.2;
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  } catch (e) {
+    // Three.js load failed — leave canvas empty, page still works
+    console.warn('Three.js not loaded:', e);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BOOTSTRAP
+   ═══════════════════════════════════════════════════════════════ */
+const api = new EmpireAPI(CONFIG.API_HOST, CONFIG.TENANT);
+const ws = new EmpireWS(api);
+const dashboard = new Dashboard(api, ws);
+ws.connect();
+initThree();
+</script>
 
 </body>
 </html>
