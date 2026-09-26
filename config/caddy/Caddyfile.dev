@@ -1,0 +1,29 @@
+# Dev Caddyfile — reverse proxy + serve UI
+# Single port (7777) for everything: UI + API + WebSocket
+
+:7777 {
+    # Serve static UI directly from /srv
+    root * /srv
+
+    # API + WebSocket proxy to FastAPI
+    @api path /api/* /health /ws/* /docs /openapi.json
+    handle @api {
+        reverse_proxy orchestrator:8123 {
+            # WebSocket support
+            transport http {
+                keepalive 60s
+            }
+        }
+    }
+
+    # UI: index.html, configuracoes.html, logs.html, approvals.html, login.html
+    handle {
+        try_files {path}.html {path} /index.html
+        file_server
+    }
+
+    log {
+        output stdout
+        level INFO
+    }
+}
