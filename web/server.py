@@ -1103,6 +1103,260 @@ async def forge_delete(name: str, user=Depends(get_current_user)):
 
 # ─── Run ───────────────────────────────────────────────────────────────────
 
+# ─── Data Upload Endpoints ─────────────────────────────────────────────────
+
+@app.get("/api/data/stats")
+async def data_stats(user=Depends(get_current_user)):
+    from empire.registry.data import get_store
+    return get_store().stats()
+
+
+@app.get("/api/data/datasets")
+async def list_datasets(user=Depends(get_current_user)):
+    from empire.registry.data import get_store
+    items = get_store().list(tenant=user["tenant"])
+    return [{
+        "id": d.id, "name": d.name, "filename": d.filename,
+        "format": d.format.value, "size_bytes": d.size_bytes,
+        "sha256": d.sha256, "uploaded_at": d.uploaded_at,
+        "tenant": d.tenant, "indexed": d.indexed,
+        "pii_detected": d.pii_detected,
+        "indexed_rows": d.indexed_rows,
+        "schema": {
+            "columns": d.schema.columns,
+            "row_count": d.schema.row_count,
+            "format": d.schema.format,
+            "file_size": d.schema.file_size,
+            "has_header": d.schema.has_header,
+        },
+        "pii_columns": [{"column": p.column, "pattern": p.pattern,
+                          "sample": p.sample, "count": p.count}
+                         for p in d.schema.pii_columns],
+    } for d in items]
+
+
+@app.post("/api/data/upload")
+async def upload_dataset(request: Request, user=Depends(get_current_user)):
+    """Streaming upload. Multipart/form-data with 'file' field."""
+    from empire.registry.data import get_store
+
+    form = await request.form()
+    if "file" not in form:
+        raise HTTPException(400, "missing 'file' field")
+
+    upload = form["file"]
+    if not hasattr(upload, "filename"):
+        raise HTTPException(400, "expected file upload")
+
+    async def gen():
+        while True:
+            chunk = await upload.read(1024 * 1024)  # 1 MB chunks
+            if not chunk:
+                break
+            yield chunk
+
+    try:
+        ds = await get_store().save_streaming(
+            upload.filename, gen(),
+            tenant=user["tenant"],
+            expected_sha256=form.get("sha256", ""),
+        )
+        audit("data.upload", actor=user["email"], tenant=user["tenant"],
+              summary=f"dataset {ds.name} uploaded",
+              metadata={"size_bytes": ds.size_bytes,
+                        "format": ds.format.value,
+                        "pii_detected": ds.pii_detected,
+                        "pii_columns": [p.column for p in ds.schema.pii_columns]})
+        return {
+            "id": ds.id, "name": ds.name, "filename": ds.filename,
+            "format": ds.format.value, "size_bytes": ds.size_bytes,
+            "sha256": ds.sha256,
+            "schema": {
+                "columns": ds.schema.columns,
+                "row_count": ds.schema.row_count,
+                "format": ds.schema.format,
+                "file_size": ds.schema.file_size,
+            },
+            "pii_detected": ds.pii_detected,
+            "pii_columns": [{"column": p.column, "pattern": p.pattern,
+                              "sample": p.sample, "count": p.count}
+                             for p in ds.schema.pii_columns],
+        }
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/data/datasets/{ds_id}")
+async def delete_dataset(ds_id: str, user=Depends(get_current_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403, "admin required")
+    from empire.registry.data import get_store
+    try:
+        get_store().delete(ds_id)
+        audit("data.delete", actor=user["email"], tenant=user["tenant"],
+              summary=f"dataset {ds_id} deleted")
+        return {"ok": True}
+    except KeyError:
+        raise HTTPException(404, "dataset not found")
+
+
+@app.get("/api/data/datasets/{ds_id}/query")
+async def query_dataset(ds_id: str, limit: int = 100, offset: int = 0,
+                        user=Depends(get_current_user)):
+    from empire.registry.data import get_store
+    try:
+        return get_store().query(ds_id, limit=limit, offset=offset)
+    except KeyError:
+        raise HTTPException(404, "dataset not found")
+
+
+@app.post("/api/data/datasets/{ds_id}/index")
+async def index_dataset(ds_id: str, user=Depends(get_current_user)):
+    """Index dataset rows into semantic memory."""
+    from empire.registry.data import get_store
+    from empire.memory.unified import get_memory
+
+    store = get_store()
+    ds = store.get(ds_id)
+    if not ds:
+        raise HTTPException(404, "dataset not found")
+    if ds.tenant != user["tenant"] and user["role"] != "admin":
+        raise HTTPException(403, "cross-tenant access denied")
+
+    rows = store.query(ds_id, limit=1000)
+    mem = get_memory()
+    indexed = 0
+    for row in rows:
+        # Build a textual chunk from the row
+        text = " | ".join(f"{k}: {v}" for k, v in row.items() if v)
+        mem.remember_knowledge(
+            text,
+            source="dataset",
+            source_id=f"{ds_id}:{indexed}",
+            tenant=ds.tenant,
+            metadata={"dataset": ds.name, "row_index": indexed},
+        )
+        indexed += 1
+    ds.indexed = True
+    ds.indexed_rows = indexed
+    store._save_metadata()
+    audit("data.index", actor=user["email"], tenant=user["tenant"],
+          summary=f"indexed {indexed} rows from {ds.name}",
+          metadata={"dataset_id": ds_id})
+    return {"ok": True, "indexed_rows": indexed}
+
+
+# ─── Memory Endpoints ──────────────────────────────────────────────────────
+
+@app.get("/api/memory/episodic")
+async def list_episodes(limit: int = 20, outcome: str = "",
+                        user=Depends(get_current_user)):
+    from empire.memory.episodic import get_episodic
+    mem = get_episodic()
+    episodes = mem.query(tenant=user["tenant"], outcome=outcome or None, limit=limit)
+    return {"total": len(episodes), "episodes": [asdict_(e) for e in episodes]}
+
+
+@app.get("/api/memory/semantic")
+async def list_semantic(limit: int = 20, user=Depends(get_current_user)):
+    from empire.memory.semantic import get_semantic
+    mem = get_semantic()
+    chunks = list(mem.chunks.values())[:limit]
+    return {"total": len(chunks), "chunks": [{
+        "id": c.id, "text": c.text[:500],
+        "source": c.source, "source_id": c.source_id,
+        "tenant": c.tenant, "created_at": c.created_at,
+        "metadata": c.metadata,
+    } for c in chunks]}
+
+
+@app.get("/api/memory/procedural")
+async def list_procedural(limit: int = 20, user=Depends(get_current_user)):
+    from empire.memory.procedural import get_procedural
+    mem = get_procedural()
+    items = mem.list(tenant=user["tenant"])[:limit]
+    return {"total": len(items), "procedures": [asdict_(p) for p in items]}
+
+
+@app.get("/api/memory/recall")
+async def recall_memory(q: str, k: int = 5, user=Depends(get_current_user)):
+    """Search across all memory types."""
+    from empire.memory.unified import MemoryQuery, get_memory
+    mq = MemoryQuery(query=q, tenant=user["tenant"], k=k)
+    result = get_memory().recall(mq)
+    return {
+        "episodes": [asdict_(e) for e in result.episodes],
+        "chunks": [[asdict_(c), s] for c, s in result.chunks],
+        "procedures": [asdict_(p) for p in result.procedures],
+    }
+
+
+# ─── Cognitive Loop Endpoints ──────────────────────────────────────────────
+
+@app.post("/api/cognitive/reflect")
+async def cognitive_reflect(user=Depends(get_current_user)):
+    """Run lesson extraction on recent episodes."""
+    from empire.memory.unified import get_memory
+    lesson = get_memory().reflect(tenant=user["tenant"])
+    audit("cognitive.reflect", actor=user["email"], tenant=user["tenant"],
+          summary=f"reflection extracted lesson: {len(lesson)} chars" if lesson else "no new lesson")
+    return {"ok": True, "lesson": lesson}
+
+
+@app.post("/api/cognitive/consolidate")
+async def cognitive_consolidate(user=Depends(get_current_user)):
+    """Promote episodic lessons into semantic memory."""
+    from empire.memory.unified import get_memory
+    promoted = get_memory().consolidate(tenant=user["tenant"])
+    audit("cognitive.consolidate", actor=user["email"], tenant=user["tenant"],
+          summary=f"consolidated {promoted} items")
+    return {"ok": True, "promoted": promoted}
+
+
+class ThinkRequest(BaseModel):
+    goal: str
+    session: str = "default"
+
+
+@app.post("/api/cognitive/think")
+async def cognitive_think(req: ThinkRequest, user=Depends(get_current_user)):
+    """Run a full cognitive loop for a goal."""
+    from empire.cognitive.loop import get_loop
+    import asyncio
+    try:
+        trace = await get_loop().think(
+            req.goal, session=req.session, tenant=user["tenant"]
+        )
+        audit("cognitive.think", actor=user["email"], tenant=user["tenant"],
+              summary=f"goal: {req.goal[:60]}",
+              metadata={"outcome": trace.final_outcome,
+                        "stages": len(trace.stages),
+                        "gap": trace.gap_detected})
+        return {
+            "outcome": trace.final_outcome,
+            "stages": trace.stages,
+            "lesson_learned": trace.lesson_learned,
+            "gap_detected": trace.gap_detected,
+            "capability_used": trace.capability_used,
+            "started_at": trace.started_at,
+        }
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+# ─── Helpers ──────────────────────────────────────────────────────────────
+
+def asdict_(obj):
+    """Safe asdict."""
+    try:
+        from dataclasses import asdict
+        return asdict(obj)
+    except Exception:
+        return {"text": str(obj)}
+
+
+# ─── Run ───────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8123, log_level="info")

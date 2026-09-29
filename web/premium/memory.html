@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Memória Cognitiva — AI Empire</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Cinzel:wght@500;700;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --gold-1: #d4a017; --gold-2: #b8860b; --gold-3: #8b6914; --gold-bright: #f4c430;
+    --bg-0: #050505; --bg-1: #0a0a0a; --bg-2: #111111; --bg-3: #1a1a1a;
+    --border: rgba(212, 160, 23, 0.18); --border-bright: rgba(212, 160, 23, 0.45);
+    --text: #e4e4e4; --text-dim: #888888; --text-bright: #ffffff;
+    --green: #4ade80; --red: #ef4444; --amber: #f59e0b;
+  }
+  body {
+    font-family: 'Inter', sans-serif; background: var(--bg-0); color: var(--text);
+    line-height: 1.6; min-height: 100vh;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background: radial-gradient(ellipse at top, rgba(212, 160, 23, 0.06) 0%, transparent 50%);
+    pointer-events: none; z-index: 0;
+  }
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(5, 5, 5, 0.9); backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 2rem;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .nav-brand {
+    display: flex; align-items: center; gap: 0.75rem;
+    font-family: 'Cinzel', serif; font-weight: 900; font-size: 1.1rem;
+    letter-spacing: 0.08em;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold-1), var(--gold-3));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .nav-brand-mark {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold-3));
+    clip-path: polygon(50% 0%, 100% 35%, 80% 100%, 20% 100%, 0% 35%);
+    box-shadow: 0 0 20px rgba(212, 160, 23, 0.5);
+  }
+  .nav-links { display: flex; gap: 1.75rem; }
+  .nav-link {
+    color: var(--text-dim); text-decoration: none;
+    font-size: 0.8rem; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .nav-link:hover, .nav-link.active { color: var(--gold-bright); }
+  main { position: relative; z-index: 1; padding: 6rem 2rem 3rem; max-width: 1500px; margin: 0 auto; }
+  .page-title {
+    font-family: 'Cinzel', serif; font-size: 2rem; font-weight: 700;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold-1));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 0.5rem;
+  }
+  .page-subtitle { color: var(--text-dim); font-size: 0.875rem; margin-bottom: 2rem; }
+
+  /* Layout */
+  .memory-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .memory-card {
+    background: linear-gradient(135deg, rgba(15, 15, 15, 0.9), rgba(5, 5, 5, 0.9));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: all 0.2s;
+  }
+  .memory-card:hover { border-color: var(--border-bright); }
+  .memory-header {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(212, 160, 23, 0.04), transparent);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .memory-title {
+    font-size: 0.9rem; font-weight: 700;
+    color: var(--gold-bright);
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .memory-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--text-bright);
+  }
+  .memory-body {
+    padding: 1rem 1.25rem;
+    max-height: 480px;
+    overflow-y: auto;
+  }
+  .memory-item {
+    padding: 0.75rem;
+    background: rgba(20, 20, 20, 0.4);
+    border-left: 2px solid var(--gold-1);
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+    font-size: 0.8rem;
+  }
+  .memory-item-meta {
+    color: var(--text-dim);
+    font-size: 0.7rem;
+    margin-bottom: 0.25rem;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .memory-item-text {
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .memory-item-text.outcome-success { border-left-color: var(--green); }
+  .memory-item-text.outcome-failure { border-left-color: var(--red); }
+
+  /* Search box */
+  .search-row {
+    background: linear-gradient(135deg, rgba(212, 160, 23, 0.05), rgba(212, 160, 23, 0.01));
+    border: 1px solid var(--border-bright);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .search-title {
+    font-size: 0.85rem; font-weight: 700;
+    color: var(--gold-bright);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 0.75rem;
+  }
+  .search-input {
+    width: 100%; background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-bright);
+    padding: 0.65rem 0.875rem;
+    border-radius: 6px; font-family: inherit; font-size: 0.9rem;
+    outline: none;
+  }
+  .search-input:focus { border-color: var(--gold-1); }
+  .search-results { margin-top: 1rem; max-height: 360px; overflow-y: auto; }
+  .search-result {
+    background: rgba(20, 20, 20, 0.6);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+  .search-result-source {
+    font-size: 0.7rem; text-transform: uppercase;
+    color: var(--gold-1); font-weight: 600;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.25rem;
+  }
+  .search-result-text { color: var(--text); font-size: 0.85rem; line-height: 1.5; }
+  .search-result-score {
+    font-size: 0.7rem; color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+    margin-top: 0.25rem;
+  }
+
+  /* Procedure item */
+  .proc-confidence {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-family: 'JetBrains Mono', monospace;
+    margin-left: 0.5rem;
+  }
+  .proc-confidence.high { background: rgba(74, 222, 128, 0.15); color: var(--green); }
+  .proc-confidence.mid { background: rgba(245, 158, 11, 0.15); color: var(--amber); }
+  .proc-confidence.low { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+
+  .proc-steps {
+    margin-top: 0.5rem;
+    padding-left: 1.25rem;
+    color: var(--text-dim);
+    font-size: 0.78rem;
+  }
+  .proc-steps li { margin-bottom: 0.2rem; }
+
+  /* Buttons */
+  .btn {
+    background: linear-gradient(135deg, var(--gold-1), var(--gold-2));
+    color: var(--bg-0); border: none;
+    padding: 0.55rem 1.25rem; border-radius: 6px;
+    font-weight: 600; font-size: 0.8rem;
+    cursor: pointer; font-family: inherit;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    transition: all 0.2s;
+  }
+  .btn:hover { box-shadow: 0 4px 16px rgba(212, 160, 23, 0.35); }
+  .btn.secondary {
+    background: transparent; color: var(--gold-bright);
+    border: 1px solid var(--border-bright);
+  }
+  .btn.secondary:hover { background: rgba(212, 160, 23, 0.08); box-shadow: none; }
+
+  .btn-row { display: flex; gap: 0.5rem; margin-top: 0.75rem; flex-wrap: wrap; }
+
+  .empty-state {
+    text-align: center;
+    padding: 3rem 2rem;
+    color: var(--text-dim);
+    background: linear-gradient(135deg, rgba(15, 15, 15, 0.5), rgba(5, 5, 5, 0.5));
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+  }
+
+  .toast-stack {
+    position: fixed; bottom: 24px; right: 24px;
+    z-index: 300; display: flex; flex-direction: column; gap: 0.5rem;
+  }
+  .toast {
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid var(--border-bright);
+    border-left: 3px solid var(--gold-1);
+    padding: 0.875rem 1rem; border-radius: 6px;
+    color: var(--text); font-size: 0.85rem;
+    max-width: 380px; backdrop-filter: blur(10px);
+    animation: slideIn 0.3s ease-out;
+  }
+  .toast.success { border-left-color: var(--green); }
+  .toast.error { border-left-color: var(--red); }
+  @keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg-1); }
+  ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--gold-1), var(--gold-3)); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand">
+    <div class="nav-brand-mark"></div>
+    AI EMPIRE
+  </div>
+  <div class="nav-links">
+    <a class="nav-link" href="index.html">Dashboard</a>
+    <a class="nav-link" href="capacidades.html">Capacidades</a>
+    <a class="nav-link" href="logs.html">Logs</a>
+    <a class="nav-link" href="approvals.html">Aprovações</a>
+    <a class="nav-link active" href="memory.html">Memória</a>
+    <a class="nav-link" href="dados.html">Dados</a>
+  </div>
+</nav>
+
+<main>
+  <h1 class="page-title">Memória Cognitiva</h1>
+  <p class="page-subtitle">4 camadas: Episódica (eventos) · Semântica (conhecimento) · Procedimental (como fazer) · Trabalho (contexto atual).</p>
+
+  <!-- Recall search -->
+  <div class="search-row">
+    <div class="search-title">Recall — buscar em toda memória</div>
+    <input class="search-input" id="recall-input" placeholder='ex: "lead B2B Brasil respondeu" ou "como calcular churn"'>
+    <div class="search-results" id="recall-results"></div>
+  </div>
+
+  <!-- Stats -->
+  <div class="memory-grid">
+    <div class="memory-card">
+      <div class="memory-header">
+        <span class="memory-title">Episódica</span>
+        <span class="memory-count" id="ep-count">—</span>
+      </div>
+      <div class="memory-body" id="ep-body">
+        <div class="empty-state" style="padding:1rem;">carregando</div>
+      </div>
+    </div>
+
+    <div class="memory-card">
+      <div class="memory-header">
+        <span class="memory-title">Semântica</span>
+        <span class="memory-count" id="se-count">—</span>
+      </div>
+      <div class="memory-body" id="se-body">
+        <div class="empty-state" style="padding:1rem;">carregando</div>
+      </div>
+    </div>
+
+    <div class="memory-card">
+      <div class="memory-header">
+        <span class="memory-title">Procedimental</span>
+        <span class="memory-count" id="pr-count">—</span>
+      </div>
+      <div class="memory-body" id="pr-body">
+        <div class="empty-state" style="padding:1rem;">carregando</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reflect action -->
+  <div class="btn-row" style="justify-content:flex-end;">
+    <button class="btn secondary" onclick="runReflect()">Refletir (extrair lições)</button>
+    <button class="btn secondary" onclick="runConsolidate()">Consolidar memória</button>
+    <button class="btn" onclick="runThink()">Rodar cognitive loop de teste</button>
+  </div>
+</main>
+
+<div class="toast-stack" id="toast-stack"></div>
+
+<script>
+const API = (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:')
+  ? 'http://localhost:8123' : `http://${location.hostname}:8123`;
+const TOKEN = localStorage.getItem('empire.token') || '';
+const TENANT = localStorage.getItem('empire.tenant') || 'default';
+
+if (!TOKEN) location.href = 'login.html?redirect=memory.html';
+
+const headers = () => ({ 'Authorization': `Bearer ${TOKEN}`, 'X-Tenant': TENANT, 'Content-Type': 'application/json' });
+
+function toast(text, kind = 'info') {
+  const stack = document.getElementById('toast-stack');
+  const t = document.createElement('div');
+  t.className = `toast ${kind}`;
+  t.textContent = text;
+  stack.appendChild(t);
+  setTimeout(() => t.remove(), 5000);
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function api(path, opts = {}) {
+  const r = await fetch(`${API}${path}`, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
+  if (r.status === 401) { location.href = 'login.html'; throw new Error('unauth'); }
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e.detail || `${r.status}`);
+  }
+  return r.json();
+}
+
+async function refreshAll() {
+  await Promise.allSettled([refreshEpisodic(), refreshSemantic(), refreshProcedural()]);
+}
+
+async function refreshEpisodic() {
+  try {
+    const data = await api('/api/memory/episodic?limit=15');
+    document.getElementById('ep-count').textContent = `${data.total} episodio(s)`;
+    const body = document.getElementById('ep-body');
+    if (!data.episodes || !data.episodes.length) {
+      body.innerHTML = '<div class="empty-state" style="padding:1rem;">nenhum episodio registrado</div>';
+      return;
+    }
+    body.innerHTML = '';
+    data.episodes.forEach(ep => {
+      const div = document.createElement('div');
+      div.className = 'memory-item';
+      const outcomeClass = ep.outcome === 'success' ? 'success' : ep.outcome === 'failure' ? 'failure' : '';
+      div.innerHTML = `
+        <div class="memory-item-meta">
+          ${escapeHtml(ep.timestamp)} · <span class="outcome-${outcomeClass}">${escapeHtml(ep.outcome)}</span> · ${escapeHtml(ep.actor)}
+        </div>
+        <div class="memory-item-text outcome-${outcomeClass}" style="border-left-color: var(--${outcomeClass === 'success' ? 'green' : outcomeClass === 'failure' ? 'red' : 'gold-1'}); padding-left: 0.5rem;">
+          <strong>${escapeHtml(ep.action)}</strong><br>
+          ${escapeHtml(ep.lesson || JSON.stringify(ep.context).slice(0, 200))}
+        </div>
+      `;
+      body.appendChild(div);
+    });
+  } catch (e) {
+    document.getElementById('ep-body').innerHTML =
+      `<div class="empty-state" style="padding:1rem;">erro: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function refreshSemantic() {
+  try {
+    const data = await api('/api/memory/semantic?limit=15');
+    document.getElementById('se-count').textContent = `${data.total} chunk(s)`;
+    const body = document.getElementById('se-body');
+    if (!data.chunks || !data.chunks.length) {
+      body.innerHTML = '<div class="empty-state" style="padding:1rem;">nenhum chunk indexado</div>';
+      return;
+    }
+    body.innerHTML = '';
+    data.chunks.forEach(c => {
+      const div = document.createElement('div');
+      div.className = 'memory-item';
+      div.innerHTML = `
+        <div class="memory-item-meta">
+          ${escapeHtml(c.source || 'manual')} · ${escapeHtml((c.created_at || '').slice(0, 19))}
+        </div>
+        <div class="memory-item-text">${escapeHtml(c.text.slice(0, 240))}${c.text.length > 240 ? '...' : ''}</div>
+      `;
+      body.appendChild(div);
+    });
+  } catch (e) {
+    document.getElementById('se-body').innerHTML =
+      `<div class="empty-state" style="padding:1rem;">erro: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function refreshProcedural() {
+  try {
+    const data = await api('/api/memory/procedural?limit=15');
+    document.getElementById('pr-count').textContent = `${data.total} procedure(s)`;
+    const body = document.getElementById('pr-body');
+    if (!data.procedures || !data.procedures.length) {
+      body.innerHTML = '<div class="empty-state" style="padding:1rem;">nenhuma procedure aprendida</div>';
+      return;
+    }
+    body.innerHTML = '';
+    data.procedures.forEach(p => {
+      const conf = p.confidence;
+      const cls = conf > 0.7 ? 'high' : conf > 0.4 ? 'mid' : 'low';
+      const div = document.createElement('div');
+      div.className = 'memory-item';
+      div.innerHTML = `
+        <div class="memory-item-meta">
+          <strong>${escapeHtml(p.name)}</strong>
+          <span class="proc-confidence ${cls}">${(conf*100).toFixed(0)}%</span>
+          <br>v${p.version} · ${p.uses} usos · ${p.successes} sucessos / ${p.failures} falhas
+        </div>
+        <div class="memory-item-text">
+          <em style="color:var(--text-dim);">Quando:</em> ${escapeHtml(p.trigger.slice(0, 100))}
+        </div>
+        <ol class="proc-steps">
+          ${(p.steps || []).slice(0, 3).map(s => `<li>${escapeHtml(s)}</li>`).join('')}
+          ${(p.steps || []).length > 3 ? `<li><em>+ ${(p.steps || []).length - 3} mais...</em></li>` : ''}
+        </ol>
+      `;
+      body.appendChild(div);
+    });
+  } catch (e) {
+    document.getElementById('pr-body').innerHTML =
+      `<div class="empty-state" style="padding:1rem;">erro: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+let recallTimer = null;
+document.getElementById('recall-input').addEventListener('input', (e) => {
+  clearTimeout(recallTimer);
+  recallTimer = setTimeout(() => doRecall(e.target.value), 300);
+});
+
+async function doRecall(q) {
+  const wrap = document.getElementById('recall-results');
+  if (!q || q.length < 3) { wrap.innerHTML = ''; return; }
+  try {
+    const data = await api(`/api/memory/recall?q=${encodeURIComponent(q)}`);
+    if (!data.episodes.length && !data.chunks.length && !data.procedures.length) {
+      wrap.innerHTML = '<div class="empty-state" style="padding:1rem;">nada encontrado</div>';
+      return;
+    }
+    wrap.innerHTML = '';
+    data.episodes.slice(0, 3).forEach(ep => {
+      const div = document.createElement('div');
+      div.className = 'search-result';
+      div.innerHTML = `
+        <div class="search-result-source">Episódio · ${escapeHtml(ep.outcome)}</div>
+        <div class="search-result-text">${escapeHtml(ep.lesson || JSON.stringify(ep.context).slice(0, 200))}</div>
+      `;
+      wrap.appendChild(div);
+    });
+    data.chunks.slice(0, 3).forEach(([chunk, score]) => {
+      const div = document.createElement('div');
+      div.className = 'search-result';
+      div.innerHTML = `
+        <div class="search-result-source">Conhecimento · ${escapeHtml(chunk.source)}</div>
+        <div class="search-result-text">${escapeHtml(chunk.text.slice(0, 200))}</div>
+        <div class="search-result-score">score: ${score.toFixed(3)}</div>
+      `;
+      wrap.appendChild(div);
+    });
+    data.procedures.slice(0, 3).forEach(p => {
+      const div = document.createElement('div');
+      div.className = 'search-result';
+      div.innerHTML = `
+        <div class="search-result-source">Procedure · ${escapeHtml(p.name)}</div>
+        <div class="search-result-text">${escapeHtml(p.rationale || p.steps[0] || '')}</div>
+        <div class="search-result-score">confidence: ${(p.confidence*100).toFixed(0)}%</div>
+      `;
+      wrap.appendChild(div);
+    });
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty-state" style="padding:1rem;">erro: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function runReflect() {
+  toast('Refletindo sobre episódios recentes...');
+  try {
+    const r = await api('/api/cognitive/reflect', { method: 'POST' });
+    if (r.lesson) toast(`Lição extraída: ${r.lesson.slice(0, 100)}...`, 'success');
+    else toast('Nenhuma lição nova (poucos episódios de falha)', 'info');
+    refreshAll();
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+async function runConsolidate() {
+  toast('Consolidando memória...');
+  try {
+    const r = await api('/api/cognitive/consolidate', { method: 'POST' });
+    toast(`${r.promoted} itens consolidados`, 'success');
+    refreshAll();
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+async function runThink() {
+  const goal = prompt('Objetivo para o cognitive loop:', 'encontre 5 leads qualificados B2B SaaS no Brasil');
+  if (!goal) return;
+  toast('Rodando cognitive loop...');
+  try {
+    const r = await api('/api/cognitive/think', {
+      method: 'POST',
+      body: JSON.stringify({ goal }),
+    });
+    toast(`Loop completo: ${r.outcome}. ${r.stages.length} estágios. Lições: ${r.lesson_learned ? 'sim' : 'não'}`, 'success');
+    if (r.gap_detected) alert(`Gap detectado: ${r.gap_detected}`);
+    refreshAll();
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+refreshAll();
+setInterval(refreshAll, 10000);
+</script>
+
+</body>
+</html>
