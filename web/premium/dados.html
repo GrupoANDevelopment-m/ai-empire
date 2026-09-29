@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dados — AI Empire</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Cinzel:wght@500;700;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --gold-1: #d4a017; --gold-2: #b8860b; --gold-3: #8b6914; --gold-bright: #f4c430;
+    --bg-0: #050505; --bg-1: #0a0a0a; --bg-2: #111111; --bg-3: #1a1a1a;
+    --border: rgba(212, 160, 23, 0.18); --border-bright: rgba(212, 160, 23, 0.45);
+    --text: #e4e4e4; --text-dim: #888888; --text-bright: #ffffff;
+    --green: #4ade80; --red: #ef4444; --amber: #f59e0b;
+  }
+  body {
+    font-family: 'Inter', sans-serif; background: var(--bg-0); color: var(--text);
+    line-height: 1.6; min-height: 100vh;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background: radial-gradient(ellipse at top, rgba(212, 160, 23, 0.06) 0%, transparent 50%);
+    pointer-events: none; z-index: 0;
+  }
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(5, 5, 5, 0.9); backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 2rem;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .nav-brand {
+    display: flex; align-items: center; gap: 0.75rem;
+    font-family: 'Cinzel', serif; font-weight: 900; font-size: 1.1rem;
+    letter-spacing: 0.08em;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold-1), var(--gold-3));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .nav-brand-mark {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold-3));
+    clip-path: polygon(50% 0%, 100% 35%, 80% 100%, 20% 100%, 0% 35%);
+    box-shadow: 0 0 20px rgba(212, 160, 23, 0.5);
+  }
+  .nav-links { display: flex; gap: 1.75rem; }
+  .nav-link {
+    color: var(--text-dim); text-decoration: none;
+    font-size: 0.8rem; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .nav-link:hover, .nav-link.active { color: var(--gold-bright); }
+  main { position: relative; z-index: 1; padding: 6rem 2rem 3rem; max-width: 1400px; margin: 0 auto; }
+  .page-title {
+    font-family: 'Cinzel', serif; font-size: 2rem; font-weight: 700;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold-1));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 0.5rem;
+  }
+  .page-subtitle { color: var(--text-dim); font-size: 0.875rem; margin-bottom: 2rem; }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .stat-card {
+    background: linear-gradient(135deg, rgba(15, 15, 15, 0.9), rgba(5, 5, 5, 0.9));
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+  }
+  .stat-label {
+    color: var(--text-dim);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.5rem;
+  }
+  .stat-value {
+    font-family: 'Cinzel', serif;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--gold-bright);
+  }
+  .stat-meta { font-size: 0.75rem; color: var(--text-dim); margin-top: 0.25rem; }
+
+  /* Upload zone */
+  .upload-zone {
+    background: linear-gradient(135deg, rgba(212, 160, 23, 0.04), rgba(212, 160, 23, 0.01));
+    border: 2px dashed var(--border-bright);
+    border-radius: 12px;
+    padding: 2rem;
+    text-align: center;
+    margin-bottom: 1.5rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .upload-zone:hover {
+    border-color: var(--gold-1);
+    background: linear-gradient(135deg, rgba(212, 160, 23, 0.08), rgba(212, 160, 23, 0.02));
+  }
+  .upload-zone.dragging {
+    border-color: var(--gold-bright);
+    background: rgba(212, 160, 23, 0.1);
+  }
+  .upload-title {
+    font-size: 1rem; font-weight: 600; color: var(--gold-bright);
+    margin-bottom: 0.5rem;
+  }
+  .upload-meta {
+    font-size: 0.8rem; color: var(--text-dim);
+  }
+
+  /* Datasets list */
+  .datasets-list {
+    display: flex; flex-direction: column; gap: 0.75rem;
+  }
+  .dataset-card {
+    background: linear-gradient(135deg, rgba(15, 15, 15, 0.9), rgba(5, 5, 5, 0.9));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+  }
+  .dataset-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .dataset-name {
+    font-size: 1rem; font-weight: 600; color: var(--text-bright);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .dataset-pills { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .pill {
+    display: inline-block;
+    padding: 0.2rem 0.55rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .pill.csv { background: rgba(96, 165, 250, 0.15); color: #60a5fa; border: 1px solid rgba(96, 165, 250, 0.3); }
+  .pill.json { background: rgba(74, 222, 128, 0.15); color: var(--green); border: 1px solid rgba(74, 222, 128, 0.3); }
+  .pill.jsonl { background: rgba(245, 158, 11, 0.15); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+  .pill.pii { background: rgba(239, 68, 68, 0.15); color: var(--red); border: 1px solid rgba(239, 68, 68, 0.3); }
+  .pill.indexed { background: rgba(74, 222, 128, 0.15); color: var(--green); border: 1px solid rgba(74, 222, 128, 0.3); }
+  .dataset-meta {
+    font-size: 0.8rem; color: var(--text-dim);
+    margin-bottom: 0.75rem;
+    line-height: 1.6;
+  }
+  .dataset-schema {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .schema-col {
+    display: grid;
+    grid-template-columns: 1fr 100px 1fr;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    border-bottom: 1px solid rgba(212, 160, 23, 0.05);
+  }
+  .schema-col:last-child { border-bottom: none; }
+  .schema-name { color: var(--gold-bright); }
+  .schema-type { color: var(--text-dim); }
+  .schema-sample { color: var(--text); opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .schema-col.pii .schema-name::after {
+    content: ' [PII]';
+    color: var(--red);
+    font-size: 0.7rem;
+  }
+
+  .dataset-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .btn {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text); padding: 0.4rem 0.85rem;
+    border-radius: 5px; font-size: 0.75rem; cursor: pointer;
+    font-family: inherit; text-transform: uppercase; letter-spacing: 0.05em;
+    transition: all 0.2s;
+  }
+  .btn:hover { border-color: var(--gold-1); color: var(--gold-bright); }
+  .btn.primary {
+    background: linear-gradient(135deg, var(--gold-1), var(--gold-2));
+    color: var(--bg-0); border: none;
+  }
+  .btn.primary:hover { box-shadow: 0 4px 16px rgba(212, 160, 23, 0.35); }
+  .btn.danger { color: var(--red); border-color: rgba(239, 68, 68, 0.3); }
+  .btn.danger:hover { background: rgba(239, 68, 68, 0.1); }
+
+  .empty-state {
+    text-align: center;
+    padding: 3rem 2rem;
+    color: var(--text-dim);
+    background: linear-gradient(135deg, rgba(15, 15, 15, 0.5), rgba(5, 5, 5, 0.5));
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+  }
+
+  .progress-bar {
+    height: 4px;
+    background: var(--bg-3);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 0.5rem;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--gold-1), var(--gold-bright));
+    transition: width 0.3s;
+  }
+
+  .toast-stack {
+    position: fixed; bottom: 24px; right: 24px;
+    z-index: 300; display: flex; flex-direction: column; gap: 0.5rem;
+  }
+  .toast {
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid var(--border-bright);
+    border-left: 3px solid var(--gold-1);
+    padding: 0.875rem 1rem; border-radius: 6px;
+    color: var(--text); font-size: 0.85rem;
+    max-width: 380px; backdrop-filter: blur(10px);
+    animation: slideIn 0.3s ease-out;
+  }
+  .toast.success { border-left-color: var(--green); }
+  .toast.error { border-left-color: var(--red); }
+  @keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg-1); }
+  ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--gold-1), var(--gold-3)); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand">
+    <div class="nav-brand-mark"></div>
+    AI EMPIRE
+  </div>
+  <div class="nav-links">
+    <a class="nav-link" href="index.html">Dashboard</a>
+    <a class="nav-link" href="capacidades.html">Capacidades</a>
+    <a class="nav-link" href="logs.html">Logs</a>
+    <a class="nav-link" href="approvals.html">Aprovações</a>
+    <a class="nav-link" href="memory.html">Memória</a>
+    <a class="nav-link active" href="dados.html">Dados</a>
+  </div>
+</nav>
+
+<main>
+  <h1 class="page-title">Dados do Negócio</h1>
+  <p class="page-subtitle">Upload de datasets. PII detectada e redatada automaticamente. Max 10 GB por arquivo.</p>
+
+  <!-- Stats -->
+  <div class="stats-row" id="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">Datasets</div>
+      <div class="stat-value" id="stat-count">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Espaço usado</div>
+      <div class="stat-value" id="stat-size">—</div>
+      <div class="stat-meta" id="stat-limit">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Com PII</div>
+      <div class="stat-value" id="stat-pii">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Indexados</div>
+      <div class="stat-value" id="stat-indexed">—</div>
+    </div>
+  </div>
+
+  <!-- Upload zone -->
+  <div class="upload-zone" id="upload-zone">
+    <div class="upload-title">Arraste arquivo aqui ou clique para selecionar</div>
+    <div class="upload-meta">CSV · JSON · JSONL · XLSX · SQLite · Parquet · até 10 GB</div>
+    <input type="file" id="file-input" style="display:none" accept=".csv,.json,.jsonl,.xlsx,.parquet,.sqlite,.db,.ndjson">
+  </div>
+
+  <!-- Datasets list -->
+  <h2 class="page-title" style="font-size: 1.25rem; margin-top: 2rem;">Datasets Carregados</h2>
+  <div class="datasets-list" id="datasets-list">
+    <div class="empty-state">aguardando dados</div>
+  </div>
+</main>
+
+<div class="toast-stack" id="toast-stack"></div>
+
+<script>
+const API = (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:')
+  ? 'http://localhost:8123' : `http://${location.hostname}:8123`;
+const TOKEN = localStorage.getItem('empire.token') || '';
+const TENANT = localStorage.getItem('empire.tenant') || 'default';
+
+if (!TOKEN) location.href = 'login.html?redirect=dados.html';
+
+const headers = () => ({ 'Authorization': `Bearer ${TOKEN}`, 'X-Tenant': TENANT });
+
+function toast(text, kind = 'info') {
+  const stack = document.getElementById('toast-stack');
+  const t = document.createElement('div');
+  t.className = `toast ${kind}`;
+  t.textContent = text;
+  stack.appendChild(t);
+  setTimeout(() => t.remove(), 5000);
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function api(path, opts = {}) {
+  const r = await fetch(`${API}${path}`, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
+  if (r.status === 401) { location.href = 'login.html'; throw new Error('unauth'); }
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e.detail || `${r.status}`);
+  }
+  return r.json();
+}
+
+function humanBytes(n) {
+  if (n == null) return '—';
+  for (const u of ['B', 'KB', 'MB', 'GB', 'TB']) {
+    if (n < 1024) return `${n.toFixed(1)} ${u}`;
+    n /= 1024;
+  }
+  return `${n.toFixed(1)} PB`;
+}
+
+// ── Stats ──
+async function refreshStats() {
+  try {
+    const s = await api('/api/data/stats');
+    document.getElementById('stat-count').textContent = s.dataset_count;
+    document.getElementById('stat-size').textContent = s.total_size_human;
+    document.getElementById('stat-limit').textContent = `de ${s.limit_human}`;
+    document.getElementById('stat-pii').textContent = s.pii_datasets;
+    document.getElementById('stat-indexed').textContent = s.indexed_datasets;
+  } catch (e) { console.warn('stats:', e.message); }
+}
+
+// ── Datasets ──
+async function refreshDatasets() {
+  try {
+    const list = await api('/api/data/datasets');
+    renderDatasets(list);
+  } catch (e) {
+    document.getElementById('datasets-list').innerHTML =
+      `<div class="empty-state">erro: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderDatasets(list) {
+  const wrap = document.getElementById('datasets-list');
+  if (!list || !list.length) {
+    wrap.innerHTML = '<div class="empty-state">nenhum dataset carregado ainda</div>';
+    return;
+  }
+  wrap.innerHTML = '';
+  list.forEach(d => wrap.appendChild(buildCard(d)));
+}
+
+function buildCard(d) {
+  const card = document.createElement('div');
+  card.className = 'dataset-card';
+  const pills = [`<span class="pill ${d.format}">${d.format.toUpperCase()}</span>`];
+  if (d.pii_detected) pills.push('<span class="pill pii">PII detectado</span>');
+  if (d.indexed) pills.push('<span class="pill indexed">indexado</span>');
+
+  let schemaHtml = '';
+  if (d.schema && d.schema.columns && d.schema.columns.length) {
+    schemaHtml = '<div class="dataset-schema">';
+    d.schema.columns.forEach(c => {
+      const isPii = d.pii_columns?.find(p => p.column === c.name);
+      schemaHtml += `<div class="schema-col ${isPii ? 'pii' : ''}">
+        <span class="schema-name">${escapeHtml(c.name)}</span>
+        <span class="schema-type">${escapeHtml(c.type)}</span>
+        <span class="schema-sample">${escapeHtml(c.sample || '')}</span>
+      </div>`;
+    });
+    schemaHtml += '</div>';
+  }
+
+  card.innerHTML = `
+    <div class="dataset-header">
+      <div class="dataset-name">${escapeHtml(d.name)}</div>
+      <div class="dataset-pills">${pills.join(' ')}</div>
+    </div>
+    <div class="dataset-meta">
+      ${escapeHtml(d.filename)} · ${humanBytes(d.size_bytes)} ·
+      ${d.schema?.row_count ?? 0} linhas · ${d.schema?.columns?.length ?? 0} colunas
+      <br>Hash: <code style="font-size:0.7rem;">${escapeHtml(d.sha256.slice(0, 32))}...</code>
+      <br>Upload: ${escapeHtml(d.uploaded_at)}
+      ${d.pii_columns?.length ? `<br>PII: ${d.pii_columns.map(p => escapeHtml(p.column)).join(', ')}` : ''}
+    </div>
+    ${schemaHtml}
+    <div class="dataset-actions">
+      <button class="btn" onclick="previewDataset('${d.id}')">Ver 5 linhas</button>
+      <button class="btn" onclick="queryDataset('${d.id}')">Query</button>
+      ${!d.indexed ? `<button class="btn primary" onclick="indexDataset('${d.id}')">Indexar</button>` : ''}
+      <button class="btn danger" onclick="deleteDataset('${d.id}')">Apagar</button>
+    </div>
+  `;
+  return card;
+}
+
+// ── Upload ──
+const zone = document.getElementById('upload-zone');
+const fileInput = document.getElementById('file-input');
+zone.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', (e) => {
+  if (e.target.files[0]) uploadFile(e.target.files[0]);
+});
+zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragging'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('dragging'));
+zone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  zone.classList.remove('dragging');
+  if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]);
+});
+
+async function uploadFile(file) {
+  if (file.size > 10 * 1024 * 1024 * 1024) {
+    toast(`Arquivo muito grande: ${humanBytes(file.size)} (max 10 GB)`, 'error');
+    return;
+  }
+  toast(`Enviando ${file.name} (${humanBytes(file.size)})...`);
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const r = await fetch(`${API}/api/data/upload`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${TOKEN}`, 'X-Tenant': TENANT },
+      body: form,
+    });
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({}));
+      throw new Error(e.detail || `${r.status}`);
+    }
+    const ds = await r.json();
+    toast(`Dataset ${ds.name} carregado: ${ds.schema.row_count} linhas, ${ds.schema.columns.length} colunas`, 'success');
+    if (ds.pii_detected) toast(`PII detectado em: ${ds.pii_columns.map(c => c.column).join(', ')}`, 'error');
+    refreshStats();
+    refreshDatasets();
+  } catch (e) {
+    toast(`Erro: ${e.message}`, 'error');
+  }
+}
+
+// ── Dataset actions ──
+async function previewDataset(id) {
+  try {
+    const data = await api(`/api/data/datasets/${id}/query?limit=5`);
+    alert(JSON.stringify(data, null, 2));
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+async function queryDataset(id) {
+  const limit = prompt('Limite de linhas?', '100');
+  if (!limit) return;
+  try {
+    const data = await api(`/api/data/datasets/${id}/query?limit=${limit}`);
+    alert(`${data.length} linhas retornadas. Primeiras 3:\n${JSON.stringify(data.slice(0, 3), null, 2)}`);
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+async function indexDataset(id) {
+  toast('Indexando...');
+  try {
+    await api(`/api/data/datasets/${id}/index`, { method: 'POST' });
+    toast('Dataset indexado', 'success');
+    refreshDatasets();
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+async function deleteDataset(id) {
+  if (!confirm('Apagar dataset?')) return;
+  try {
+    await api(`/api/data/datasets/${id}`, { method: 'DELETE' });
+    toast('Dataset apagado', 'success');
+    refreshStats();
+    refreshDatasets();
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+// ── Init ──
+refreshStats();
+refreshDatasets();
+</script>
+
+</body>
+</html>
