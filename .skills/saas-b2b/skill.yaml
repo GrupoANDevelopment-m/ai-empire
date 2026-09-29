@@ -1,0 +1,48 @@
+name: saas-b2b
+version: 1.0.0
+description: >
+  Skill completa para negocios SaaS B2B. Inclui calculo de MRR, scoring de leads
+  baseado em ICP, e detector de churn baseado em uso.
+author: AI Empire
+license: MIT
+scm: ""
+
+capabilities:
+  tools:
+    - mrr_calculator
+    - icp_scorer
+    - churn_predictor
+  prompts:
+    - saas_system_prompt
+  templates:
+    - cold_outreach_b2b
+
+required_mcps: []
+optional_mcps: [stripe, hubspot]
+
+required_data: []
+
+sandbox_profile: medium
+
+network_policy:
+  allow: []
+  deny: ["*"]
+
+self_test:
+  - tool: mrr_calculator
+    input:
+      customers:
+        - {plan: "starter", seats: 1, price_per_seat: 99}
+        - {plan: "pro", seats: 5, price_per_seat: 299}
+        - {plan: "enterprise", seats: 50, price_per_seat: 999}
+      billing_period: monthly
+  - tool: icp_scorer
+    input:
+      lead:
+        {role: "CTO", company_size: 100, industry: "SaaS", country: "BR"}
+  - tool: churn_predictor
+    input:
+      customer:
+        {days_since_signup: 90, logins_last_30d: 1, features_used_last_30d: 1,
+         support_tickets_last_30d: 3, nps_score: -20, plan: "pro",
+         seats_used: 2, seats_paid: 10}
