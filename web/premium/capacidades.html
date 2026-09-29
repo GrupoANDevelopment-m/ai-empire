@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Capacidades — AI Empire</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Cinzel:wght@500;700;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --gold-1: #d4a017; --gold-2: #b8860b; --gold-3: #8b6914; --gold-bright: #f4c430;
+    --bg-0: #050505; --bg-1: #0a0a0a; --bg-2: #111111; --bg-3: #1a1a1a;
+    --border: rgba(212, 160, 23, 0.18); --border-bright: rgba(212, 160, 23, 0.45);
+    --text: #e4e4e4; --text-dim: #888888; --text-bright: #ffffff;
+    --green: #4ade80; --red: #ef4444; --amber: #f59e0b;
+  }
+  body {
+    font-family: 'Inter', sans-serif; background: var(--bg-0); color: var(--text);
+    line-height: 1.6; min-height: 100vh;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background: radial-gradient(ellipse at top, rgba(212, 160, 23, 0.06) 0%, transparent 50%);
+    pointer-events: none; z-index: 0;
+  }
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(5, 5, 5, 0.9); backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 2rem;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .nav-brand {
+    display: flex; align-items: center; gap: 0.75rem;
+    font-family: 'Cinzel', serif; font-weight: 900; font-size: 1.1rem;
+    letter-spacing: 0.08em;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold-1), var(--gold-3));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .nav-brand-mark {
+    width: 28px; height: 28px;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold-3));
+    clip-path: polygon(50% 0%, 100% 35%, 80% 100%, 20% 100%, 0% 35%);
+    box-shadow: 0 0 20px rgba(212, 160, 23, 0.5);
+  }
+  .nav-links { display: flex; gap: 1.75rem; }
+  .nav-link {
+    color: var(--text-dim); text-decoration: none;
+    font-size: 0.8rem; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .nav-link:hover, .nav-link.active { color: var(--gold-bright); }
+
+  main { position: relative; z-index: 1; padding: 6rem 2rem 3rem; max-width: 1400px; margin: 0 auto; }
+  .page-title {
+    font-family: 'Cinzel', serif; font-size: 2rem; font-weight: 700;
+    background: linear-gradient(135deg, var(--gold-bright), var(--gold-1));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 0.5rem;
+  }
+  .page-subtitle { color: var(--text-dim); font-size: 0.875rem; margin-bottom: 2rem; }
+
+  .section { margin-bottom: 2rem; }
+  .section-header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+  .section-h2 {
+    font-size: 1rem; font-weight: 700; color: var(--text-bright);
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .section-meta { color: var(--text-dim); font-size: 0.8rem; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+  .card {
+    background: linear-gradient(135deg, rgba(15, 15, 15, 0.9), rgba(5, 5, 5, 0.9));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+    transition: all 0.2s;
+  }
+  .card:hover { border-color: var(--border-bright); }
+  .card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 0.75rem;
+  }
+  .card-title {
+    font-size: 0.95rem; font-weight: 600;
+    color: var(--text-bright);
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .pill {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .pill.active {
+    background: rgba(74, 222, 128, 0.15); color: var(--green);
+    border: 1px solid rgba(74, 222, 128, 0.3);
+  }
+  .pill.idle {
+    background: rgba(245, 158, 11, 0.15); color: var(--amber);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+  }
+  .pill.offline {
+    background: rgba(239, 68, 68, 0.15); color: var(--red);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+  }
+  .card-meta {
+    font-size: 0.75rem; color: var(--text-dim);
+    line-height: 1.5;
+    margin-bottom: 0.75rem;
+  }
+  .card-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .btn {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text); padding: 0.35rem 0.75rem;
+    border-radius: 5px; font-size: 0.7rem; cursor: pointer;
+    font-family: inherit; text-transform: uppercase; letter-spacing: 0.05em;
+    transition: all 0.2s;
+  }
+  .btn:hover { border-color: var(--gold-1); color: var(--gold-bright); }
+  .btn.primary {
+    background: linear-gradient(135deg, var(--gold-1), var(--gold-2));
+    color: var(--bg-0); border: none;
+  }
+  .btn.primary:hover { box-shadow: 0 4px 16px rgba(212, 160, 23, 0.35); }
+  .btn.danger { color: var(--red); border-color: rgba(239, 68, 68, 0.3); }
+  .btn.danger:hover { background: rgba(239, 68, 68, 0.1); }
+
+  .tool-list {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(212, 160, 23, 0.08);
+  }
+  .tool-item {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.35rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+  }
+  .tool-item .name { color: var(--gold-bright); }
+
+  .forge-bar {
+    background: linear-gradient(135deg, rgba(212, 160, 23, 0.08), rgba(212, 160, 23, 0.02));
+    border: 1px solid var(--border-bright);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+  }
+  .forge-bar-title {
+    font-size: 0.85rem; font-weight: 600;
+    color: var(--gold-bright);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 0.5rem;
+  }
+  .forge-bar p {
+    font-size: 0.85rem; color: var(--text-dim);
+    margin-bottom: 0.75rem;
+  }
+  .forge-bar input {
+    width: 100%; background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-bright);
+    padding: 0.65rem 0.875rem;
+    border-radius: 6px; font-family: inherit; font-size: 0.85rem;
+    outline: none;
+  }
+  .forge-bar input:focus { border-color: var(--gold-1); }
+  .forge-bar .row { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+  .forge-bar .row input { flex: 1; }
+
+  .modal-bg {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    z-index: 200;
+    display: none; align-items: center; justify-content: center;
+  }
+  .modal-bg.active { display: flex; }
+  .modal {
+    background: var(--bg-1); border: 1px solid var(--border-bright);
+    border-radius: 12px; padding: 2rem;
+    max-width: 640px; width: 90%; max-height: 80vh; overflow-y: auto;
+  }
+  .modal-title {
+    font-family: 'Cinzel', serif; font-size: 1.2rem;
+    color: var(--gold-bright); margin-bottom: 1rem;
+  }
+  .modal-field { margin-bottom: 1rem; }
+  .modal-field-label {
+    font-size: 0.75rem; text-transform: uppercase;
+    color: var(--text-dim); font-weight: 600; margin-bottom: 0.35rem;
+  }
+  .modal-field input, .modal-field textarea {
+    width: 100%; background: var(--bg-2);
+    border: 1px solid var(--border); color: var(--text);
+    padding: 0.55rem 0.75rem; border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem; outline: none;
+  }
+  .modal-field input:focus, .modal-field textarea:focus { border-color: var(--gold-1); }
+  .modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+
+  .toast-stack {
+    position: fixed; bottom: 24px; right: 24px;
+    z-index: 300; display: flex; flex-direction: column; gap: 0.5rem;
+  }
+  .toast {
+    background: rgba(20, 20, 20, 0.95);
+    border: 1px solid var(--border-bright);
+    border-left: 3px solid var(--gold-1);
+    padding: 0.875rem 1rem; border-radius: 6px;
+    color: var(--text); font-size: 0.85rem;
+    max-width: 360px; backdrop-filter: blur(10px);
+    animation: slideIn 0.3s ease-out;
+  }
+  .toast.success { border-left-color: var(--green); }
+  .toast.error { border-left-color: var(--red); }
+  @keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg-1); }
+  ::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--gold-1), var(--gold-3)); border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand">
+    <div class="nav-brand-mark"></div>
+    AI EMPIRE
+  </div>
+  <div class="nav-links">
+    <a class="nav-link" href="index.html">Dashboard</a>
+    <a class="nav-link" href="configuracoes.html">Configurações</a>
+    <a class="nav-link" href="logs.html">Logs</a>
+    <a class="nav-link" href="approvals.html">Aprovações</a>
+    <a class="nav-link active" href="capacidades.html">Capacidades</a>
+  </div>
+</nav>
+
+<main>
+  <h1 class="page-title">Capacidades</h1>
+  <p class="page-subtitle">Skills, MCPs e tools geradas. Tudo que o agente pode usar.</p>
+
+  <!-- OpenCode Forge -->
+  <div class="forge-bar">
+    <div class="forge-bar-title">OpenCode Forge</div>
+    <p>Peça uma ferramenta nova em linguagem natural. O Forge gera, testa em sandbox e ativa.</p>
+    <div class="row">
+      <input id="forge-input" placeholder='ex: "cria uma tool que calcule cohort retention mensal"'>
+      <button class="btn primary" onclick="generateTool()">Gerar</button>
+    </div>
+    <div style="margin-top:0.75rem; font-size:0.75rem; color:var(--text-dim);" id="forge-status">
+      Forge: detectando provedor LLM...
+    </div>
+  </div>
+
+  <!-- SKILLS -->
+  <div class="section">
+    <div class="section-header">
+      <h2 class="section-h2">Skills</h2>
+      <div class="section-meta" id="skills-meta">—</div>
+    </div>
+    <div class="grid" id="skills-grid">
+      <div class="card" style="grid-column: 1/-1;">
+        <div class="card-meta">aguardando dados</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MCPs -->
+  <div class="section">
+    <div class="section-header">
+      <h2 class="section-h2">MCP Servers</h2>
+      <div class="section-meta" id="mcps-meta">—</div>
+    </div>
+    <div class="grid" id="mcps-grid">
+      <div class="card" style="grid-column: 1/-1;">
+        <div class="card-meta">aguardando dados</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FORGE TOOLS -->
+  <div class="section">
+    <div class="section-header">
+      <h2 class="section-h2">Tools geradas pelo Forge</h2>
+      <div class="section-meta" id="forge-meta">—</div>
+    </div>
+    <div class="grid" id="forge-grid">
+      <div class="card" style="grid-column: 1/-1;">
+        <div class="card-meta">aguardando dados</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Install Skill Modal -->
+<div class="modal-bg" id="install-skill-modal">
+  <div class="modal">
+    <div class="modal-title">Instalar Skill</div>
+    <div class="modal-field">
+      <div class="modal-field-label">Fonte</div>
+      <select id="install-source" style="width:100%; background:var(--bg-2); border:1px solid var(--border); color:var(--text); padding:0.55rem 0.75rem; border-radius:6px; font-family:inherit;" onchange="onSourceChange()">
+        <option value="catalog">Do catálogo</option>
+        <option value="git">De URL Git</option>
+        <option value="upload">Upload de ZIP</option>
+      </select>
+    </div>
+    <div class="modal-field" id="field-catalog">
+      <div class="modal-field-label">Skill disponível</div>
+      <select id="install-name" style="width:100%; background:var(--bg-2); border:1px solid var(--border); color:var(--text); padding:0.55rem 0.75rem; border-radius:6px; font-family:inherit;"></select>
+    </div>
+    <div class="modal-field" id="field-git" style="display:none;">
+      <div class="modal-field-label">URL Git</div>
+      <input id="install-git-url" placeholder="https://github.com/user/skill-repo.git">
+    </div>
+    <div class="modal-field" id="field-upload" style="display:none;">
+      <div class="modal-field-label">Arquivo ZIP</div>
+      <input type="file" id="install-zip" accept=".zip">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('install-skill-modal')">Cancelar</button>
+      <button class="btn primary" onclick="installSkill()">Instalar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Install MCP Modal -->
+<div class="modal-bg" id="install-mcp-modal">
+  <div class="modal">
+    <div class="modal-title">Instalar MCP</div>
+    <div class="modal-field">
+      <div class="modal-field-label">Do catálogo</div>
+      <select id="install-mcp-name" style="width:100%; background:var(--bg-2); border:1px solid var(--border); color:var(--text); padding:0.55rem 0.75rem; border-radius:6px; font-family:inherit;"></select>
+    </div>
+    <div class="modal-field">
+      <div class="modal-field-label">Variáveis de ambiente (KEY=value, uma por linha)</div>
+      <textarea id="install-mcp-env" rows="4" placeholder="STRIPE_SECRET_KEY=sk_test_..."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('install-mcp-modal')">Cancelar</button>
+      <button class="btn primary" onclick="installMCP()">Instalar</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-stack" id="toast-stack"></div>
+
+<script>
+const API = (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:')
+  ? 'http://localhost:8123' : `http://${location.hostname}:8123`;
+const TOKEN = localStorage.getItem('empire.token') || '';
+const TENANT = localStorage.getItem('empire.tenant') || 'default';
+const headers = () => ({ 'Authorization': `Bearer ${TOKEN}`, 'X-Tenant': TENANT, 'Content-Type': 'application/json' });
+
+if (!TOKEN) location.href = 'login.html?redirect=capacidades.html';
+
+function toast(text, kind = 'info') {
+  const stack = document.getElementById('toast-stack');
+  const t = document.createElement('div');
+  t.className = `toast ${kind}`;
+  t.textContent = text;
+  stack.appendChild(t);
+  setTimeout(() => t.remove(), 5000);
+}
+
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+function openModal(id) { document.getElementById(id).classList.add('active'); }
+
+async function api(path, opts = {}) {
+  const r = await fetch(`${API}${path}`, { ...opts, headers: { ...headers(), ...(opts.headers || {}) } });
+  if (r.status === 401) { location.href = 'login.html'; throw new Error('unauth'); }
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e.detail || `${r.status}`);
+  }
+  return r.json();
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ── Skills ──
+async function refreshSkills() {
+  try {
+    const data = await api('/api/capabilities/skills');
+    renderSkills(data.installed, data.available);
+  } catch (e) {
+    document.getElementById('skills-grid').innerHTML =
+      `<div class="card" style="grid-column: 1/-1;"><div class="card-meta">erro: ${escapeHtml(e.message)}</div></div>`;
+  }
+}
+
+function renderSkills(installed, available) {
+  const grid = document.getElementById('skills-grid');
+  document.getElementById('skills-meta').textContent = `${installed.length} instalada(s), ${available.length} disponível(eis)`;
+  if (!installed.length && !available.length) {
+    grid.innerHTML = '<div class="card" style="grid-column: 1/-1;"><div class="card-meta">nenhuma skill encontrada. Clique em "Instalar" para adicionar.</div></div>';
+    return;
+  }
+  grid.innerHTML = '';
+  installed.forEach(s => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-header">
+        <div class="card-title">${escapeHtml(s.name)}</div>
+        <span class="pill ${s.enabled ? 'active' : 'idle'}">${s.enabled ? 'ativa' : 'desativada'}</span>
+      </div>
+      <div class="card-meta">
+        ${escapeHtml(s.description || '')}<br>
+        v${escapeHtml(s.version)} · ${s.tools_count} tool(s) · ${s.templates_count} template(s)
+        ${s.last_self_test_ok ? '' : '<br><span class="pill offline">self-test falhou</span>'}
+      </div>
+      ${s.tools.length ? `<div class="tool-list">${s.tools.map(t => `<div class="tool-item"><span class="name">${escapeHtml(t)}</span></div>`).join('')}</div>` : ''}
+      <div class="card-actions" style="margin-top:0.75rem;">
+        <button class="btn" onclick="toggleSkill('${s.name}', ${!s.enabled})">${s.enabled ? 'Desativar' : 'Ativar'}</button>
+        <button class="btn danger" onclick="uninstallSkill('${s.name}')">Remover</button>
+      </div>`;
+    grid.appendChild(card);
+  });
+  if (available.length) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.borderStyle = 'dashed';
+    card.innerHTML = `
+      <div class="card-meta">${available.length} skill(s) disponível(eis) no diretório .skills/</div>
+      <div class="card-actions" style="margin-top:0.5rem;">
+        <button class="btn primary" onclick="installFromAvailable('${available[0].name}')">+ Instalar primeira</button>
+      </div>`;
+    grid.appendChild(card);
+  }
+}
+
+async function installFromAvailable(name) {
+  try {
+    await api(`/api/capabilities/skills/${name}/install-from-path`, { method: 'POST' });
+    toast(`Skill ${name} instalada`, 'success');
+    refreshSkills();
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+async function toggleSkill(name, enabled) {
+  try {
+    await api(`/api/capabilities/skills/${name}/toggle`, {
+      method: 'POST', body: JSON.stringify({ enabled }),
+    });
+    toast(`Skill ${enabled ? 'ativada' : 'desativada'}`, 'success');
+    refreshSkills();
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+async function uninstallSkill(name) {
+  if (!confirm(`Remover skill ${name}?`)) return;
+  try {
+    await api(`/api/capabilities/skills/${name}`, { method: 'DELETE' });
+    toast(`Skill removida`, 'success');
+    refreshSkills();
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+// ── MCPs ──
+async function refreshMCPs() {
+  try {
+    const data = await api('/api/capabilities/mcps');
+    renderMCPs(data.installed, data.catalog);
+  } catch (e) {
+    document.getElementById('mcps-grid').innerHTML =
+      `<div class="card" style="grid-column: 1/-1;"><div class="card-meta">erro: ${escapeHtml(e.message)}</div></div>`;
+  }
+}
+
+function renderMCPs(installed, catalog) {
+  const grid = document.getElementById('mcps-grid');
+  document.getElementById('mcps-meta').textContent = `${installed.length} instalado(s), ${Object.keys(catalog || {}).length} no catálogo`;
+  if (!installed.length && !Object.keys(catalog || {}).length) {
+    grid.innerHTML = '<div class="card" style="grid-column: 1/-1;"><div class="card-meta">nenhum MCP instalado. Catálogo indisponível.</div></div>';
+    return;
+  }
+  grid.innerHTML = '';
+  installed.forEach(m => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    const status = m.enabled ? (m.online ? 'active' : 'offline') : 'idle';
+    const statusText = m.enabled ? (m.online ? 'online' : 'offline') : 'desativado';
+    card.innerHTML = `
+      <div class="card-header">
+        <div class="card-title">${escapeHtml(m.name)}</div>
+        <span class="pill ${status}">${statusText}</span>
+      </div>
+      <div class="card-meta">
+        ${escapeHtml(m.transport)} · ${m.tools_count} tool(s) exposta(s)
+        ${m.last_error ? `<br><span style="color:var(--red)">${escapeHtml(m.last_error)}</span>` : ''}
+      </div>
+      ${m.tools.length ? `<div class="tool-list">${m.tools.map(t => `<div class="tool-item"><span class="name">${escapeHtml(t)}</span></div>`).join('')}</div>` : ''}
+      <div class="card-actions" style="margin-top:0.75rem;">
+        <button class="btn" onclick="healthMCP('${m.name}')">Health Check</button>
+        <button class="btn" onclick="toggleMCP('${m.name}', ${!m.enabled})">${m.enabled ? 'Desativar' : 'Ativar'}</button>
+        <button class="btn danger" onclick="uninstallMCP('${m.name}')">Remover</button>
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
+async function healthMCP(name) {
+  toast(`Testando ${name}...`);
+  try {
+    const r = await api(`/api/capabilities/mcps/${name}/health`, { method: 'POST' });
+    toast(`${name}: ${r.online ? 'online' : 'offline'} ${r.tools ? `· ${r.tools.length} tools` : ''}`,
+           r.online ? 'success' : 'error');
+    refreshMCPs();
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+async function toggleMCP(name, enabled) {
+  try {
+    await api(`/api/capabilities/mcps/${name}/toggle`, {
+      method: 'POST', body: JSON.stringify({ enabled }),
+    });
+    toast(`MCP ${enabled ? 'ativado' : 'desativado'}`, 'success');
+    refreshMCPs();
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+async function uninstallMCP(name) {
+  if (!confirm(`Remover MCP ${name}?`)) return;
+  try {
+    await api(`/api/capabilities/mcps/${name}`, { method: 'DELETE' });
+    toast(`MCP removido`, 'success');
+    refreshMCPs();
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+function showInstallMCPMCP() {
+  api('/api/capabilities/mcps/catalog').then(catalog => {
+    const sel = document.getElementById('install-mcp-name');
+    sel.innerHTML = Object.entries(catalog).map(([k, v]) =>
+      `<option value="${k}">${k} — ${escapeHtml(v.description || '')}</option>`
+    ).join('');
+    openModal('install-mcp-modal');
+  }).catch(e => toast(`Erro: ${e.message}`, 'error'));
+}
+
+async function installMCP() {
+  const name = document.getElementById('install-mcp-name').value;
+  const envText = document.getElementById('install-mcp-env').value;
+  const env = {};
+  envText.split('\n').forEach(line => {
+    const [k, ...v] = line.split('=');
+    if (k && v.length) env[k.trim()] = v.join('=').trim();
+  });
+  try {
+    await api('/api/capabilities/mcps', {
+      method: 'POST',
+      body: JSON.stringify({ name, env }),
+    });
+    toast(`MCP ${name} instalado. Ativando...`, 'success');
+    closeModal('install-mcp-modal');
+    setTimeout(() => healthMCP(name), 1500);
+    refreshMCPs();
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+// ── Forge ──
+async function refreshForge() {
+  try {
+    const data = await api('/api/capabilities/forge');
+    renderForge(data.tools, data.provider);
+  } catch (e) {
+    document.getElementById('forge-grid').innerHTML =
+      `<div class="card" style="grid-column: 1/-1;"><div class="card-meta">erro: ${escapeHtml(e.message)}</div></div>`;
+  }
+}
+
+function renderForge(tools, provider) {
+  const grid = document.getElementById('forge-grid');
+  const status = document.getElementById('forge-status');
+  document.getElementById('forge-meta').textContent = `${tools.length} tool(s) gerada(s) · $${(provider?.total_cost_usd || 0).toFixed(4)} total`;
+
+  if (provider?.name) {
+    status.textContent = `Forge: ${provider.name} ${provider.model || ''} ${provider.online ? '✓ online' : '⚠ offline'} · ${provider.cost_in || 0}/$${provider.cost_out || 0} por 1M tokens`;
+    status.style.color = provider.online ? 'var(--green)' : 'var(--amber)';
+  } else {
+    status.textContent = 'Forge: nenhum provedor LLM configurado. Defina ANTHROPIC_API_KEY, OPENAI_API_KEY, ou OLLAMA_URL.';
+    status.style.color = 'var(--red)';
+  }
+
+  if (!tools.length) {
+    grid.innerHTML = '<div class="card" style="grid-column: 1/-1;"><div class="card-meta">nenhuma tool gerada ainda. Use o Forge acima para criar a primeira.</div></div>';
+    return;
+  }
+  grid.innerHTML = '';
+  tools.forEach(t => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-header">
+        <div class="card-title">${escapeHtml(t.name)}</div>
+        <span class="pill active">v${t.version}</span>
+      </div>
+      <div class="card-meta">
+        ${escapeHtml(t.description || '')}<br>
+        modelo: ${escapeHtml(t.model_used || '—')} · ${t.invoke_count} invocações · ${t.error_count} erros
+      </div>
+      <div class="card-actions" style="margin-top:0.75rem;">
+        <button class="btn" onclick="testTool('${t.name}')">Testar</button>
+        <button class="btn" onclick="viewTool('${t.name}')">Ver código</button>
+        <button class="btn danger" onclick="deleteTool('${t.name}')">Apagar</button>
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
+async function generateTool() {
+  const request = document.getElementById('forge-input').value.trim();
+  if (!request) { toast('Digite o pedido', 'error'); return; }
+  toast('Gerando... (pode levar 10-30s)', 'info');
+  try {
+    const r = await api('/api/capabilities/forge/generate', {
+      method: 'POST',
+      body: JSON.stringify({ request }),
+    });
+    toast(`Tool "${r.name}" gerada com sucesso!`, 'success');
+    document.getElementById('forge-input').value = '';
+    refreshForge();
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+async function testTool(name) {
+  const inputs = prompt(`Inputs para ${name} (JSON):`, '{}');
+  if (!inputs) return;
+  try {
+    const r = await api(`/api/capabilities/forge/${name}/invoke`, {
+      method: 'POST',
+      body: JSON.stringify({ inputs: JSON.parse(inputs) }),
+    });
+    alert(`Resultado:\n${JSON.stringify(r, null, 2)}`);
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+async function viewTool(name) {
+  try {
+    const r = await api(`/api/capabilities/forge/${name}`);
+    alert(`${name}.py:\n\n${r.code}`);
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+async function deleteTool(name) {
+  if (!confirm(`Apagar tool ${name}?`)) return;
+  try {
+    await api(`/api/capabilities/forge/${name}`, { method: 'DELETE' });
+    toast('Tool removida', 'success');
+    refreshForge();
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+// ── Modal skill ──
+function showInstallSkillModal() {
+  api('/api/capabilities/skills/available').then(available => {
+    const sel = document.getElementById('install-name');
+    sel.innerHTML = available.length
+      ? available.map(a => `<option value="${a.name}">${a.name} v${a.version} — ${escapeHtml(a.description)}</option>`).join('')
+      : '<option value="">(nenhuma disponível)</option>';
+    openModal('install-skill-modal');
+  });
+}
+
+function onSourceChange() {
+  const src = document.getElementById('install-source').value;
+  document.getElementById('field-catalog').style.display = src === 'catalog' ? 'block' : 'none';
+  document.getElementById('field-git').style.display = src === 'git' ? 'block' : 'none';
+  document.getElementById('field-upload').style.display = src === 'upload' ? 'block' : 'none';
+}
+
+async function installSkill() {
+  const source = document.getElementById('install-source').value;
+  try {
+    if (source === 'catalog') {
+      const name = document.getElementById('install-name').value;
+      await api(`/api/capabilities/skills/${name}/install-from-path`, { method: 'POST' });
+      toast(`Skill ${name} instalada`, 'success');
+    } else if (source === 'git') {
+      const url = document.getElementById('install-git-url').value;
+      if (!url) { toast('URL obrigatória', 'error'); return; }
+      await api('/api/capabilities/skills/install-from-git', {
+        method: 'POST', body: JSON.stringify({ url }),
+      });
+      toast(`Skill instalada via git`, 'success');
+    } else if (source === 'upload') {
+      const file = document.getElementById('install-zip').files[0];
+      if (!file) { toast('Arquivo obrigatório', 'error'); return; }
+      const form = new FormData();
+      form.append('file', file);
+      const r = await fetch(`${API}/api/capabilities/skills/install-from-zip`, {
+        method: 'POST', headers: { 'Authorization': `Bearer ${TOKEN}`, 'X-Tenant': TENANT },
+        body: form,
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e.detail || `${r.status}`);
+      }
+      toast(`Skill instalada via upload`, 'success');
+    }
+    closeModal('install-skill-modal');
+    refreshSkills();
+  } catch (e) { toast(`Erro: ${e.message}`, 'error'); }
+}
+
+// ── Init ──
+document.querySelector('main').insertAdjacentHTML('afterbegin', `
+  <div style="margin-bottom:1rem; display:flex; gap:0.5rem;">
+    <button class="btn primary" onclick="showInstallSkillModal()">+ Instalar Skill</button>
+    <button class="btn primary" onclick="showInstallMCPMCP()">+ Instalar MCP</button>
+    <button class="btn" onclick="refreshAll()">Atualizar tudo</button>
+  </div>
+`);
+function refreshAll() { refreshSkills(); refreshMCPs(); refreshForge(); }
+
+refreshAll();
+setInterval(refreshAll, 10000);
+</script>
+
+</body>
+</html>

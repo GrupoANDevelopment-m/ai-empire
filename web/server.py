@@ -27,6 +27,7 @@ Endpoints:
   GET  /approvals.html                  — HITL approver
 """
 import os
+import sys
 import asyncio
 import json
 import time
@@ -37,6 +38,9 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any, List, Set
 from datetime import datetime, timedelta, timezone
+
+# Ensure the project root is on sys.path so `empire.*` imports work
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from fastapi import (
     FastAPI, WebSocket, WebSocketDisconnect,
@@ -757,14 +761,23 @@ async def ws_agent(ws: WebSocket):
 
 
 async def _stream_agent_response(ws, prompt, session, tenant, user_payload):
-    """Stream tokens. Tries real EmpireAgent, falls back to LLMClient, then echo."""
+    """Stream tokens. Tries real EmpireAgent with capability injection, then fallback."""
     try:
         from empire.agent.llm import EmpireAgent
+        from empire.registry.discovery import build_capability_prompt, discover_all_capabilities
+        # Build the capability-aware system prompt
+        caps = discover_all_capabilities()
+        cap_prompt = build_capability_prompt()
         agent = EmpireAgent(tenant=tenant)
+        # If agent supports system prompt injection, use it
+        if hasattr(agent, "set_capabilities"):
+            agent.set_capabilities(caps)
         if hasattr(agent, "on_tool_call"):
             def on_tc(name, args):
                 asyncio.create_task(ws.send_json({"type": "tool_call", "name": name, "args": args}))
             agent.on_tool_call = on_tc
+        # Send capability snapshot to client
+        await ws.send_json({"type": "capabilities", "data": caps})
         async for chunk in agent.stream(prompt, session=session):
             await ws.send_json({"type": "token", "content": chunk})
         await ws.send_json({"type": "done"})
@@ -772,17 +785,26 @@ async def _stream_agent_response(ws, prompt, session, tenant, user_payload):
     except ImportError:
         pass
     try:
-        from empire.agent.llm.client import LLMClient
-        client = LLMClient()
-        if client.is_configured():
-            for c in client.stream_chat(prompt):
-                await ws.send_json({"type": "token", "content": c})
+        from empire.registry.forge import call_llm
+        from empire.registry.discovery import build_capability_prompt
+        sys_prompt = build_capability_prompt()
+        result = await call_llm(prompt, system=sys_prompt, max_tokens=2000)
+        if not result.get("error") and result.get("content"):
+            # Send capabilities and stream content
+            from empire.registry.discovery import discover_all_capabilities
+            await ws.send_json({"type": "capabilities", "data": discover_all_capabilities()})
+            content = result["content"]
+            for w in content.split():
+                await ws.send_json({"type": "token", "content": w + " "})
                 await asyncio.sleep(0.01)
-            await ws.send_json({"type": "done"})
+            await ws.send_json({"type": "done", "model": result.get("model"),
+                              "cost_usd": result.get("cost_usd")})
             return
     except Exception:
         pass
-    # Echo fallback — explicit message that backend isn't connected
+    # Echo fallback
+    from empire.registry.discovery import discover_all_capabilities
+    await ws.send_json({"type": "capabilities", "data": discover_all_capabilities()})
     msg = (f"Recebi sua mensagem. Para gerar respostas reais, configure "
            f"OLLAMA_URL ou ANTHROPIC_API_KEY/OPENAI_API_KEY. "
            f"Você disse: {prompt[:200]}")
@@ -795,6 +817,288 @@ async def _stream_agent_response(ws, prompt, session, tenant, user_payload):
 # ─── Required imports ──────────────────────────────────────────────────────
 
 import httpx
+
+
+# ─── Capabilities (Skills + MCPs + Forge) ──────────────────────────────────
+
+@app.get("/api/capabilities")
+async def get_all_capabilities(user=Depends(get_current_user)):
+    """Unified view of all capabilities — for system prompt injection."""
+    try:
+        from empire.registry.discovery import capabilities_snapshot
+        return capabilities_snapshot(force_refresh=True)
+    except Exception as e:
+        return {"error": str(e), "skills": {"active": []}, "mcps": [], "forge": {"tools": []}}
+
+
+@app.get("/api/capabilities/skills")
+async def list_skills(user=Depends(get_current_user)):
+    from empire.registry.skills import get_registry
+    reg = get_registry()
+    installed = [
+        {
+            "name": s.manifest.name, "version": s.manifest.version,
+            "description": s.manifest.description, "enabled": s.enabled,
+            "tools": s.tools, "prompts": s.prompts, "templates": s.templates,
+            "tools_count": len(s.tools), "templates_count": len(s.templates),
+            "last_self_test_ok": s.last_self_test_ok,
+            "last_self_test": s.last_self_test,
+            "source": s.manifest.source,
+            "hash": s.manifest.hash,
+        }
+        for s in reg.list()
+    ]
+    available = reg.discover_available()
+    return {"installed": installed, "available": available}
+
+
+@app.get("/api/capabilities/skills/available")
+async def skills_available(user=Depends(get_current_user)):
+    from empire.registry.skills import get_registry
+    return get_registry().discover_available()
+
+
+@app.post("/api/capabilities/skills/{name}/install-from-path")
+async def install_skill_from_path(name: str, user=Depends(get_current_user)):
+    from empire.registry.skills import get_registry
+    reg = get_registry()
+    # Find the skill in .skills/ or already installed path
+    skill_path = reg.skills_dir / name
+    if not skill_path.exists():
+        raise HTTPException(404, f"skill {name} not found in {reg.skills_dir}")
+    try:
+        skill = reg.install_from_path(skill_path, source=f"path:{skill_path}")
+        audit("skill.install", actor=user["email"], tenant=user["tenant"],
+              summary=f"skill {name} installed", metadata={"version": skill.manifest.version})
+        return {"ok": True, "name": name, "version": skill.manifest.version,
+                "tools": skill.tools}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+class InstallGitRequest(BaseModel):
+    url: str
+    ref: str = "main"
+
+
+@app.post("/api/capabilities/skills/install-from-git")
+async def install_skill_from_git(req: InstallGitRequest, user=Depends(get_current_user)):
+    from empire.registry.skills import get_registry
+    try:
+        skill = get_registry().install_from_git(req.url, ref=req.ref)
+        audit("skill.install", actor=user["email"], tenant=user["tenant"],
+              summary=f"skill installed from git",
+              metadata={"url": req.url, "name": skill.manifest.name})
+        return {"ok": True, "name": skill.manifest.name, "version": skill.manifest.version}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/capabilities/skills/install-from-zip")
+async def install_skill_from_zip(request: Request, user=Depends(get_current_user)):
+    from empire.registry.skills import get_registry
+    body = await request.body()
+    try:
+        skill = get_registry().install_from_zip(body, source="upload")
+        audit("skill.install", actor=user["email"], tenant=user["tenant"],
+              summary=f"skill {skill.manifest.name} installed from zip")
+        return {"ok": True, "name": skill.manifest.name}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/capabilities/skills/{name}")
+async def uninstall_skill(name: str, user=Depends(get_current_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403, "admin required")
+    from empire.registry.skills import get_registry
+    try:
+        get_registry().uninstall(name)
+        audit("skill.uninstall", actor=user["email"], tenant=user["tenant"],
+              summary=f"skill {name} removed")
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+class ToggleRequest(BaseModel):
+    enabled: bool
+
+
+@app.post("/api/capabilities/skills/{name}/toggle")
+async def toggle_skill(name: str, req: ToggleRequest, user=Depends(get_current_user)):
+    from empire.registry.skills import get_registry
+    try:
+        skill = get_registry().toggle(name, req.enabled)
+        audit("skill.toggle", actor=user["email"], tenant=user["tenant"],
+              summary=f"skill {name} {'enabled' if req.enabled else 'disabled'}")
+        return {"ok": True, "enabled": skill.enabled}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+# ─── MCPs ──
+
+@app.get("/api/capabilities/mcps")
+async def list_mcps(user=Depends(get_current_user)):
+    from empire.registry.mcps import get_manager
+    mgr = get_manager()
+    return {
+        "installed": mgr.list_installed(),
+        "catalog": mgr.list_catalog(),
+    }
+
+
+@app.get("/api/capabilities/mcps/catalog")
+async def mcp_catalog(user=Depends(get_current_user)):
+    from empire.registry.mcps import get_manager
+    return get_manager().list_catalog()
+
+
+class InstallMCPRequest(BaseModel):
+    name: str
+    env: Dict[str, str] = {}
+
+
+@app.post("/api/capabilities/mcps")
+async def install_mcp(req: InstallMCPRequest, user=Depends(get_current_user)):
+    from empire.registry.mcps import get_manager
+    try:
+        srv = get_manager().install(req.name, {"env": req.env})
+        audit("mcp.install", actor=user["email"], tenant=user["tenant"],
+              summary=f"MCP {req.name} installed", metadata={"transport": srv.transport})
+        return {"ok": True, "name": req.name, "transport": srv.transport}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/capabilities/mcps/{name}")
+async def uninstall_mcp(name: str, user=Depends(get_current_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403, "admin required")
+    from empire.registry.mcps import get_manager
+    try:
+        get_manager().uninstall(name)
+        audit("mcp.uninstall", actor=user["email"], tenant=user["tenant"],
+              summary=f"MCP {name} removed")
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/capabilities/mcps/{name}/health")
+async def mcp_health(name: str, user=Depends(get_current_user)):
+    from empire.registry.mcps import get_manager
+    return get_manager().health_check(name)
+
+
+@app.post("/api/capabilities/mcps/{name}/toggle")
+async def toggle_mcp(name: str, req: ToggleRequest, user=Depends(get_current_user)):
+    from empire.registry.mcps import get_manager
+    try:
+        srv = get_manager().toggle(name, req.enabled)
+        audit("mcp.toggle", actor=user["email"], tenant=user["tenant"],
+              summary=f"MCP {name} {'enabled' if req.enabled else 'disabled'}")
+        return {"ok": True, "enabled": srv.enabled}
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+# ─── Forge ──
+
+@app.get("/api/capabilities/forge")
+async def forge_status(user=Depends(get_current_user)):
+    from empire.registry.forge import get_forge, LLMProvider
+    f = get_forge()
+    providers = LLMProvider().list_providers()
+    best = LLMProvider().best() if LLMProvider().available else None
+    return {
+        "tools": f.list_tools(),
+        "provider": {
+            "name": best["name"] if best else None,
+            "model": best.get("model") if best else None,
+            "online": LLMProvider().available,
+            "available_providers": providers,
+            "total_cost_usd": sum(t.get("cost_usd", 0) for t in f.list_tools()),
+        } if best else {
+            "name": None, "online": False,
+            "available_providers": providers,
+            "total_cost_usd": sum(t.get("cost_usd", 0) for t in f.list_tools()),
+        },
+    }
+
+
+class ForgeGenerateRequest(BaseModel):
+    request: str
+
+
+@app.post("/api/capabilities/forge/generate")
+async def forge_generate(req: ForgeGenerateRequest, user=Depends(get_current_user)):
+    from empire.registry.forge import get_forge
+    from empire.registry.discovery import capabilities_snapshot
+    try:
+        ctx = capabilities_snapshot(force_refresh=True)
+        tool = await get_forge().generate(req.request, context=ctx)
+        audit("forge.generate", actor=user["email"], tenant=user["tenant"],
+              summary=f"tool generated: {tool.name}",
+              metadata={"cost_usd": tool.cost_usd, "model": tool.model_used})
+        return {
+            "name": tool.name, "version": tool.version,
+            "description": tool.description,
+            "code": tool.code[:500] + ("..." if len(tool.code) > 500 else ""),
+            "model": tool.model_used, "cost_usd": tool.cost_usd,
+            "inputs_schema": tool.inputs_schema, "output_schema": tool.output_schema,
+        }
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/capabilities/forge/{name}")
+async def forge_get_tool(name: str, user=Depends(get_current_user)):
+    from empire.registry.forge import get_forge
+    tool = get_forge().get(name)
+    if not tool:
+        raise HTTPException(404, f"tool {name} not found")
+    return {
+        "name": tool.name, "code": tool.code, "description": tool.description,
+        "version": tool.version, "invoke_count": tool.invoke_count,
+        "error_count": tool.error_count, "model_used": tool.model_used,
+        "created_at": tool.created_at,
+    }
+
+
+class ForgeInvokeRequest(BaseModel):
+    inputs: Dict[str, Any] = {}
+
+
+@app.post("/api/capabilities/forge/{name}/invoke")
+async def forge_invoke(name: str, req: ForgeInvokeRequest, user=Depends(get_current_user)):
+    from empire.registry.forge import get_forge
+    try:
+        result = get_forge().invoke(name, req.inputs)
+        audit("forge.invoke", actor=user["email"], tenant=user["tenant"],
+              summary=f"tool {name} invoked",
+              metadata={"success": result.get("success")})
+        return result
+    except Exception as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/capabilities/forge/{name}")
+async def forge_delete(name: str, user=Depends(get_current_user)):
+    if user["role"] != "admin":
+        raise HTTPException(403, "admin required")
+    from empire.registry.forge import get_forge
+    forge = get_forge()
+    if name not in forge.tools:
+        raise HTTPException(404, "tool not found")
+    del forge.tools[name]
+    tool_path = forge.tools_dir / f"{name}.py"
+    if tool_path.exists():
+        tool_path.unlink()
+    forge._save_registry()
+    audit("forge.delete", actor=user["email"], tenant=user["tenant"], summary=f"tool {name} deleted")
+    return {"ok": True}
 
 
 # ─── Run ───────────────────────────────────────────────────────────────────
