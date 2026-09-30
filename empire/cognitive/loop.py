@@ -82,6 +82,13 @@ class CognitiveLoop:
         use_llm: bool = True,
     ) -> CognitiveTrace:
         """Run a full cognitive loop for a goal."""
+        # Validate goal before proceeding
+        goal = goal.strip() if goal else ""
+        if not goal:
+            raise ValueError("goal cannot be empty")
+        if len(goal) > 2000:
+            raise ValueError("goal too long (max 2000 chars)")
+
         trace = CognitiveTrace(
             session=session, tenant=tenant,
             started_at=datetime.now(timezone.utc).isoformat(),
@@ -91,6 +98,15 @@ class CognitiveLoop:
         # 1. PERCEPTION — read context
         ctx = await self._perception(goal, session, tenant)
         self._record_stage(trace, Stage.PERCEPTION, ctx)
+
+        # Fast-fail if no capabilities at all (saves the 10-stage run)
+        if await self._check_no_capabilities(ctx.get("capabilities", {})):
+            gap = "no_capabilities_installed: instale uma skill ou MCP primeiro"
+            trace.gap_detected = gap
+            trace.final_outcome = "failure"
+            self._record_stage(trace, Stage.GAP_DETECT, {"gap": gap})
+            self._record_stage(trace, Stage.COMPLETE, {"outcome": "failure", "short_circuit": True})
+            return trace
 
         # 2. GOAL — register active goal
         goal_obj = working.add_goal(goal, priority=8, metric="completion")
@@ -140,7 +156,11 @@ class CognitiveLoop:
         self._record_stage(trace, Stage.REFLECTION, {"lesson": lesson[:300]})
 
         trace.final_outcome = "success" if evaluation.get("any_succeeded") else "failure"
-        trace.capability_used = hypotheses[0].approach if hypotheses else None
+        # Resolve actual capability used (not just approach label)
+        used_caps = list(set(r.get("capability", "") for r in results if r.get("capability")))
+        trace.capability_used = used_caps[0] if used_caps else (
+            hypotheses[0].approach if hypotheses else None
+        )
         working.set_context("last_trace", asdict(trace))
 
         self._record_stage(trace, Stage.COMPLETE, {"outcome": trace.final_outcome})
@@ -157,6 +177,13 @@ class CognitiveLoop:
             "session": session,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+
+    async def _check_no_capabilities(self, caps: Dict[str, Any]) -> bool:
+        """Check if there are no skills/MCPs/forge tools at all."""
+        n_skills = len(caps.get("skills", {}).get("active", []))
+        n_mcps = len(caps.get("mcps", []))
+        n_forge = caps.get("forge", {}).get("count", 0)
+        return n_skills == 0 and n_mcps == 0 and n_forge == 0
 
     async def _reasoning(self, goal: str, ctx: Dict[str, Any],
                          session: str, tenant: str,
@@ -369,11 +396,21 @@ class CognitiveLoop:
         return lesson
 
     def _record_stage(self, trace: CognitiveTrace, stage: Stage, data: Any):
-        trace.stages.append({
-            "stage": stage.value,
-            "data": data,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        """Append a stage entry. data must be JSON-serializable."""
+        try:
+            # Defensive: ensure data is serializable
+            json.dumps(data, default=str)
+            trace.stages.append({
+                "stage": stage.value,
+                "data": data,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+        except (TypeError, ValueError):
+            trace.stages.append({
+                "stage": stage.value,
+                "data": {"_unserializable": str(data)[:200]},
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
 
 
 def asdict_safe(obj):

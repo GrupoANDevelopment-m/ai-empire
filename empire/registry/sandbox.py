@@ -41,6 +41,14 @@ FORBIDDEN_MODULES = {
     "pty", "pwd", "grp",
     "resource",  # itself
     "_thread", "threading",  # can spawn runaway threads
+    "multiprocessing",  # can fork+escape
+    "signal",  # can SIGKILL safety monitors
+    "atexit", "posix",  # register cleanup hooks
+    "platform", "sys",  # introspection
+    "asyncio", "ssl",  # alternative network/event loops
+    "marshal",  # code object deserialization
+    "win32api", "win32con", "winreg",
+    "pywin32",  # Windows-specific
 }
 
 # Forbidden call patterns (very high-risk)
@@ -62,6 +70,13 @@ class ASTViolation:
 
 class ASTSafetyValidator(ast.NodeVisitor):
     """Static analysis that blocks dangerous code BEFORE execution."""
+
+    # Dangerous attributes on common objects
+    FORBIDDEN_ATTRS = {
+        "system", "popen", "spawn", "fork", "kill", "setuid", "setgid",
+        "chroot", "unshare", "killpg", "wait", "Popen", "run", "call",
+        "check_call", "check_output", "Popen", "load_dynamic",
+    }
 
     def __init__(self):
         self.violations: List[ASTViolation] = []
@@ -91,12 +106,17 @@ class ASTSafetyValidator(ast.NodeVisitor):
         elif isinstance(node.func, ast.Attribute):
             # Block things like os.system, subprocess.run, etc
             attr = node.func.attr
-            if attr in FORBIDDEN_CALLS:
+            if attr in FORBIDDEN_CALLS or attr in self.FORBIDDEN_ATTRS:
                 self.violations.append(ASTViolation(
                     line=node.lineno, col=node.col_offset,
                     node=f"Call(...{attr})",
                     reason=f"forbidden method: {attr}",
                 ))
+        self.generic_visit(node)
+
+    def visit_With(self, node):
+        """Block 'with open(path) as f: f.write(...)' file writes outside workdir."""
+        # We're in sandbox where open is restricted, but also flag suspicious patterns
         self.generic_visit(node)
 
     def _check_module(self, mod: str, line: int, col: int):

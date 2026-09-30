@@ -80,3 +80,5 @@ package-lock.json
 *.tmp
 *.bak
 *.swp
+empire_data/
+empire_registry.yaml
