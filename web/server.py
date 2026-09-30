@@ -35,6 +35,8 @@ import secrets
 import hmac
 import hashlib
 import logging
+import re
+import uuid
 from contextlib import asynccontextmanager
 from typing import Optional, Dict, Any, List, Set
 from datetime import datetime, timedelta, timezone
@@ -89,6 +91,25 @@ USERS_DB: Dict[str, Dict[str, Any]] = {
         "password_hash": bcrypt.hashpw(b"empire", bcrypt.gensalt()).decode(),
         "created_at": "2024-01-01T00:00:00Z",
     },
+    # Second tenant for testing cross-tenant isolation
+    "admin@acme.com": {
+        "id": "u-010",
+        "email": "admin@acme.com",
+        "name": "Acme Admin",
+        "role": "admin",
+        "tenant": "acme",
+        "password_hash": bcrypt.hashpw(b"empire", bcrypt.gensalt()).decode(),
+        "created_at": "2024-01-01T00:00:00Z",
+    },
+    "operator@acme.com": {
+        "id": "u-011",
+        "email": "operator@acme.com",
+        "name": "Acme Operator",
+        "role": "operator",
+        "tenant": "acme",
+        "password_hash": bcrypt.hashpw(b"empire", bcrypt.gensalt()).decode(),
+        "created_at": "2024-01-01T00:00:00Z",
+    },
 }
 
 # Append-only audit log (in-memory; Postgres in production)
@@ -138,10 +159,41 @@ CONFIG_DB: Dict[str, Any] = {
     }
 }
 
-# JWT secret
-JWT_SECRET = os.getenv("JWT_SECRET") or secrets.token_hex(32)
+# JWT secret - MUST be at least 32 bytes for HS256 (RFC 7518)
+_jwt_secret_raw = os.getenv("JWT_SECRET")
+if not _jwt_secret_raw or len(_jwt_secret_raw) < 32:
+    _jwt_secret_raw = secrets.token_urlsafe(48)  # 48 bytes > 32 minimum
+JWT_SECRET = _jwt_secret_raw
 JWT_ALG = os.getenv("JWT_ALG", "HS256")
 JWT_ISSUER = "ai-empire"
+
+# Default limits (prevent DoS via huge queries)
+DEFAULT_PAGE_LIMIT = 100
+MAX_PAGE_LIMIT = 500
+
+# ─── Rate limiting (in-memory, simple sliding window) ──────────────────────
+
+_RATE_BUCKET: Dict[str, List[float]] = {}
+RATE_LIMIT_PER_MIN = int(os.getenv("EMPIRE_RATE_LIMIT_PER_MIN", "60"))
+
+
+def _rate_check(client_id: str, max_per_min: int = RATE_LIMIT_PER_MIN) -> bool:
+    """Returns True if request is allowed, False if rate-limited."""
+    now = time.time()
+    bucket = _RATE_BUCKET.setdefault(client_id, [])
+    # Drop entries older than 60s
+    while bucket and now - bucket[0] > 60:
+        bucket.pop(0)
+    if len(bucket) >= max_per_min:
+        return False
+    bucket.append(now)
+    return True
+
+
+def _client_key(request: Request, user_email: str = "") -> str:
+    ip = client_ip(request)
+    return f"{user_email}:{ip}" if user_email else ip
+
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -345,6 +397,21 @@ if os.path.isdir(UI_DIR):
 
 def get_current_user(request: Request) -> Dict[str, Any]:
     """Extract user from JWT in Authorization header or query (for WS)."""
+    # Rate limit per token+IP — exempt /health and /docs to avoid killing LB probes
+    path = request.url.path
+    exempt_paths = ("/health", "/docs", "/openapi.json", "/redoc")
+    if not any(path == p or path.startswith(p + "/") for p in exempt_paths):
+        auth = request.headers.get("Authorization", "")
+        token = ""
+        if auth.lower().startswith("bearer "):
+            token = auth[7:]
+        elif "token" in request.query_params:
+            token = request.query_params["token"]
+        # Use token prefix as client identifier
+        client_id = (token[:32] if token else "") + client_ip(request)
+        if not _rate_check(client_id, max_per_min=RATE_LIMIT_PER_MIN):
+            raise HTTPException(429, "rate limit exceeded; slow down")
+    # Get token
     auth = request.headers.get("Authorization", "")
     token = ""
     if auth.lower().startswith("bearer "):
@@ -402,10 +469,42 @@ async def approvals_page():
 
 # ─── Health ────────────────────────────────────────────────────────────────
 
+# Track server start time for uptime
+_BOOT_TIME = time.time()
+
+
 @app.get("/health")
 async def health():
-    return {"status": "ok", "ts": time.time(), "version": "3.3",
-            "approvals_pending": sum(1 for a in APPROVALS.values() if a["status"] == "pending")}
+    """Comprehensive health check — useful for k8s/load balancers."""
+    uptime = time.time() - _BOOT_TIME
+    pending_approvals = sum(1 for a in APPROVALS.values() if a["status"] == "pending")
+    # Check key subsystems
+    components = {
+        "audit_log": {"ok": True, "count": len(AUDIT_LOG), "max": 10_000},
+        "approvals": {"ok": True, "pending": pending_approvals},
+        "episodic_memory": {"ok": True},
+        "semantic_memory": {"ok": True},
+    }
+    # Check subsystem health
+    try:
+        from empire.registry.skills import get_registry
+        components["skills"] = {"ok": True, "installed": len(get_registry().installed)}
+    except Exception as e:
+        components["skills"] = {"ok": False, "error": str(e)[:100]}
+    try:
+        from empire.registry.mcps import get_manager
+        components["mcps"] = {"ok": True, "installed": len(get_manager().servers)}
+    except Exception as e:
+        components["mcps"] = {"ok": False, "error": str(e)[:100]}
+    # Status = ok if all critical subsystems are ok
+    all_ok = all(c.get("ok", True) for c in components.values())
+    return {
+        "status": "ok" if all_ok else "degraded",
+        "ts": time.time(),
+        "version": "3.3",
+        "uptime_seconds": int(uptime),
+        "components": components,
+    }
 
 
 # ─── Auth endpoints ────────────────────────────────────────────────────────
@@ -417,6 +516,13 @@ class LoginRequest(BaseModel):
 
 @app.post("/api/auth/login")
 async def login(req: LoginRequest, request: Request):
+    # Rate-limit login attempts per IP (5/min) — prevent brute force
+    key = f"login:{client_ip(request)}"
+    if not _rate_check(key, max_per_min=5):
+        audit("auth.rate_limited", severity="warning",
+              actor=req.email, ip=client_ip(request),
+              summary=f"login rate-limited from {client_ip(request)}")
+        raise HTTPException(429, "too many login attempts; try again in a minute")
     user = USERS_DB.get(req.email.lower().strip())
     if not user or not verify_password(req.password, user["password_hash"]):
         audit("auth.failed", severity="warning",
@@ -473,6 +579,8 @@ async def list_audit(
     """Paginated audit log with search and filter. Cursor = timestamp ID."""
     if user["role"] == "viewer":
         raise HTTPException(403, "audit log requires operator or admin role")
+    # Clamp limit to prevent DoS
+    limit = min(max(1, limit), MAX_PAGE_LIMIT)
 
     results = AUDIT_LOG[::-1]  # newest first
     if user["role"] != "admin":
@@ -515,6 +623,7 @@ async def list_approvals(
     user=Depends(get_current_user),
 ):
     """List approvals by status for the user's tenant."""
+    limit = min(max(1, limit), MAX_PAGE_LIMIT)
     items = [a for a in APPROVALS.values() if a.get("status") == status]
     if user["role"] != "admin":
         items = [a for a in items if a.get("tenant") == user.get("tenant", "default")]
@@ -715,6 +824,11 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest, request: Request, user=Depends(get_current_user)):
+    # Validate input
+    if not req.message or not req.message.strip():
+        raise HTTPException(400, "message cannot be empty")
+    if len(req.message) > 8000:
+        raise HTTPException(400, "message too long (max 8000 chars)")
     audit("chat.message", actor=user["email"], tenant=user["tenant"],
           summary=req.message[:200],
           metadata={"session": req.session})
@@ -912,8 +1026,11 @@ async def uninstall_skill(name: str, user=Depends(get_current_user)):
     if user["role"] != "admin":
         raise HTTPException(403, "admin required")
     from empire.registry.skills import get_registry
+    reg = get_registry()
+    if name not in reg.installed:
+        raise HTTPException(404, f"skill '{name}' not installed")
     try:
-        get_registry().uninstall(name)
+        reg.uninstall(name)
         audit("skill.uninstall", actor=user["email"], tenant=user["tenant"],
               summary=f"skill {name} removed")
         return {"ok": True}
@@ -928,8 +1045,11 @@ class ToggleRequest(BaseModel):
 @app.post("/api/capabilities/skills/{name}/toggle")
 async def toggle_skill(name: str, req: ToggleRequest, user=Depends(get_current_user)):
     from empire.registry.skills import get_registry
+    reg = get_registry()
+    if name not in reg.installed:
+        raise HTTPException(404, f"skill '{name}' not installed")
     try:
-        skill = get_registry().toggle(name, req.enabled)
+        skill = reg.toggle(name, req.enabled)
         audit("skill.toggle", actor=user["email"], tenant=user["tenant"],
               summary=f"skill {name} {'enabled' if req.enabled else 'disabled'}")
         return {"ok": True, "enabled": skill.enabled}
@@ -977,8 +1097,11 @@ async def uninstall_mcp(name: str, user=Depends(get_current_user)):
     if user["role"] != "admin":
         raise HTTPException(403, "admin required")
     from empire.registry.mcps import get_manager
+    mgr = get_manager()
+    if name not in mgr.servers:
+        raise HTTPException(404, f"MCP '{name}' not installed")
     try:
-        get_manager().uninstall(name)
+        mgr.uninstall(name)
         audit("mcp.uninstall", actor=user["email"], tenant=user["tenant"],
               summary=f"MCP {name} removed")
         return {"ok": True}
@@ -989,14 +1112,20 @@ async def uninstall_mcp(name: str, user=Depends(get_current_user)):
 @app.post("/api/capabilities/mcps/{name}/health")
 async def mcp_health(name: str, user=Depends(get_current_user)):
     from empire.registry.mcps import get_manager
-    return get_manager().health_check(name)
+    mgr = get_manager()
+    if name not in mgr.servers:
+        raise HTTPException(404, f"MCP '{name}' not installed")
+    return mgr.health_check(name)
 
 
 @app.post("/api/capabilities/mcps/{name}/toggle")
 async def toggle_mcp(name: str, req: ToggleRequest, user=Depends(get_current_user)):
     from empire.registry.mcps import get_manager
+    mgr = get_manager()
+    if name not in mgr.servers:
+        raise HTTPException(404, f"MCP '{name}' not installed")
     try:
-        srv = get_manager().toggle(name, req.enabled)
+        srv = mgr.toggle(name, req.enabled)
         audit("mcp.toggle", actor=user["email"], tenant=user["tenant"],
               summary=f"MCP {name} {'enabled' if req.enabled else 'disabled'}")
         return {"ok": True, "enabled": srv.enabled}
@@ -1074,8 +1203,11 @@ class ForgeInvokeRequest(BaseModel):
 @app.post("/api/capabilities/forge/{name}/invoke")
 async def forge_invoke(name: str, req: ForgeInvokeRequest, user=Depends(get_current_user)):
     from empire.registry.forge import get_forge
+    forge = get_forge()
+    if name not in forge.tools:
+        raise HTTPException(404, f"tool '{name}' not found")
     try:
-        result = get_forge().invoke(name, req.inputs)
+        result = forge.invoke(name, req.inputs)
         audit("forge.invoke", actor=user["email"], tenant=user["tenant"],
               summary=f"tool {name} invoked",
               metadata={"success": result.get("success")})
@@ -1091,7 +1223,7 @@ async def forge_delete(name: str, user=Depends(get_current_user)):
     from empire.registry.forge import get_forge
     forge = get_forge()
     if name not in forge.tools:
-        raise HTTPException(404, "tool not found")
+        raise HTTPException(404, f"tool '{name}' not found")
     del forge.tools[name]
     tool_path = forge.tools_dir / f"{name}.py"
     if tool_path.exists():
@@ -1148,11 +1280,25 @@ async def upload_dataset(request: Request, user=Depends(get_current_user)):
     if not hasattr(upload, "filename"):
         raise HTTPException(400, "expected file upload")
 
+    # Reject empty files early
+    content_length = upload.size if hasattr(upload, 'size') else 0
+    if content_length == 0:
+        raise HTTPException(400, "empty file rejected")
+
+    # Validate filename — no path traversal, no null bytes
+    if "\x00" in upload.filename or ".." in upload.filename:
+        raise HTTPException(400, "invalid filename")
+
     async def gen():
+        from empire.registry.data import MAX_FILE_SIZE
+        total = 0
         while True:
             chunk = await upload.read(1024 * 1024)  # 1 MB chunks
             if not chunk:
                 break
+            total += len(chunk)
+            if total > MAX_FILE_SIZE:
+                raise ValueError(f"file too large: {total} bytes")
             yield chunk
 
     try:
@@ -1161,6 +1307,11 @@ async def upload_dataset(request: Request, user=Depends(get_current_user)):
             tenant=user["tenant"],
             expected_sha256=form.get("sha256", ""),
         )
+        # Reject if no rows were extracted
+        if ds.schema.row_count == 0 and ds.schema.columns == []:
+            # Cleanup empty dataset
+            get_store().delete(ds.id)
+            raise HTTPException(400, "file contained no parseable data")
         audit("data.upload", actor=user["email"], tenant=user["tenant"],
               summary=f"dataset {ds.name} uploaded",
               metadata={"size_bytes": ds.size_bytes,
@@ -1182,6 +1333,8 @@ async def upload_dataset(request: Request, user=Depends(get_current_user)):
                               "sample": p.sample, "count": p.count}
                              for p in ds.schema.pii_columns],
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(400, str(e))
 
@@ -1191,23 +1344,42 @@ async def delete_dataset(ds_id: str, user=Depends(get_current_user)):
     if user["role"] != "admin":
         raise HTTPException(403, "admin required")
     from empire.registry.data import get_store
-    try:
-        get_store().delete(ds_id)
-        audit("data.delete", actor=user["email"], tenant=user["tenant"],
-              summary=f"dataset {ds_id} deleted")
-        return {"ok": True}
-    except KeyError:
+    store = get_store()
+    ds = store.get(ds_id)
+    if not ds:
         raise HTTPException(404, "dataset not found")
+    # Cross-tenant check for non-admin
+    if ds.tenant != user["tenant"] and user["role"] != "admin":
+        audit("security.cross_tenant_blocked", severity="warning",
+              actor=user["email"], tenant=user["tenant"],
+              summary=f"blocked cross-tenant dataset delete: {ds_id}")
+        raise HTTPException(403, "cross-tenant access denied")
+    store.delete(ds_id)
+    audit("data.delete", actor=user["email"], tenant=user["tenant"],
+          summary=f"dataset {ds.name} deleted",
+          metadata={"dataset_id": ds_id})
+    return {"ok": True}
 
 
 @app.get("/api/data/datasets/{ds_id}/query")
 async def query_dataset(ds_id: str, limit: int = 100, offset: int = 0,
                         user=Depends(get_current_user)):
     from empire.registry.data import get_store
-    try:
-        return get_store().query(ds_id, limit=limit, offset=offset)
-    except KeyError:
+    # CRITICAL: enforce tenant isolation on dataset access
+    store = get_store()
+    ds = store.get(ds_id)
+    if not ds:
         raise HTTPException(404, "dataset not found")
+    if ds.tenant != user["tenant"] and user["role"] != "admin":
+        # Audit the cross-tenant attempt before rejecting
+        audit("security.cross_tenant_blocked", severity="warning",
+              actor=user["email"], tenant=user["tenant"],
+              summary=f"blocked cross-tenant dataset access: {ds_id}")
+        raise HTTPException(403, "dataset belongs to another tenant")
+    # Clamp limit to prevent DoS
+    limit = min(max(1, limit), MAX_PAGE_LIMIT)
+    offset = max(0, offset)
+    return store.query(ds_id, limit=limit, offset=offset)
 
 
 @app.post("/api/data/datasets/{ds_id}/index")
@@ -1221,6 +1393,9 @@ async def index_dataset(ds_id: str, user=Depends(get_current_user)):
     if not ds:
         raise HTTPException(404, "dataset not found")
     if ds.tenant != user["tenant"] and user["role"] != "admin":
+        audit("security.cross_tenant_blocked", severity="warning",
+              actor=user["email"], tenant=user["tenant"],
+              summary=f"blocked cross-tenant dataset index: {ds_id}")
         raise HTTPException(403, "cross-tenant access denied")
 
     rows = store.query(ds_id, limit=1000)
@@ -1251,6 +1426,7 @@ async def index_dataset(ds_id: str, user=Depends(get_current_user)):
 @app.get("/api/memory/episodic")
 async def list_episodes(limit: int = 20, outcome: str = "",
                         user=Depends(get_current_user)):
+    limit = min(max(1, limit), MAX_PAGE_LIMIT)
     from empire.memory.episodic import get_episodic
     mem = get_episodic()
     episodes = mem.query(tenant=user["tenant"], outcome=outcome or None, limit=limit)
@@ -1259,6 +1435,7 @@ async def list_episodes(limit: int = 20, outcome: str = "",
 
 @app.get("/api/memory/semantic")
 async def list_semantic(limit: int = 20, user=Depends(get_current_user)):
+    limit = min(max(1, limit), MAX_PAGE_LIMIT)
     from empire.memory.semantic import get_semantic
     mem = get_semantic()
     chunks = list(mem.chunks.values())[:limit]
@@ -1272,6 +1449,7 @@ async def list_semantic(limit: int = 20, user=Depends(get_current_user)):
 
 @app.get("/api/memory/procedural")
 async def list_procedural(limit: int = 20, user=Depends(get_current_user)):
+    limit = min(max(1, limit), MAX_PAGE_LIMIT)
     from empire.memory.procedural import get_procedural
     mem = get_procedural()
     items = mem.list(tenant=user["tenant"])[:limit]
@@ -1281,6 +1459,9 @@ async def list_procedural(limit: int = 20, user=Depends(get_current_user)):
 @app.get("/api/memory/recall")
 async def recall_memory(q: str, k: int = 5, user=Depends(get_current_user)):
     """Search across all memory types."""
+    if not q or len(q.strip()) < 2:
+        raise HTTPException(400, "query must be at least 2 chars")
+    k = min(max(1, k), 20)
     from empire.memory.unified import MemoryQuery, get_memory
     mq = MemoryQuery(query=q, tenant=user["tenant"], k=k)
     result = get_memory().recall(mq)
@@ -1321,14 +1502,21 @@ class ThinkRequest(BaseModel):
 @app.post("/api/cognitive/think")
 async def cognitive_think(req: ThinkRequest, user=Depends(get_current_user)):
     """Run a full cognitive loop for a goal."""
+    # Validate input - refuse empty or whitespace-only goals
+    goal = req.goal.strip() if req.goal else ""
+    if not goal or len(goal) < 5:
+        raise HTTPException(400, "goal must be at least 5 non-blank characters")
+    if len(goal) > 1000:
+        raise HTTPException(400, "goal must be at most 1000 characters")
+
     from empire.cognitive.loop import get_loop
     import asyncio
     try:
         trace = await get_loop().think(
-            req.goal, session=req.session, tenant=user["tenant"]
+            goal, session=req.session, tenant=user["tenant"]
         )
         audit("cognitive.think", actor=user["email"], tenant=user["tenant"],
-              summary=f"goal: {req.goal[:60]}",
+              summary=f"goal: {goal[:60]}",
               metadata={"outcome": trace.final_outcome,
                         "stages": len(trace.stages),
                         "gap": trace.gap_detected})

@@ -19,6 +19,7 @@ import time
 import shutil
 import hashlib
 import asyncio
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field, asdict
@@ -434,8 +435,6 @@ Responda APENAS com o código Python puro (sem ```python```)."""
         # Simple rollback: re-generate with same name on first call
         raise NotImplementedError("version history not yet implemented")
 
-
-import re
 
 # ─── Singleton ──────────────────────────────────────────────────────────────
 
