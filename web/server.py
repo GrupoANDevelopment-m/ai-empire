@@ -47,10 +47,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from fastapi import (
     FastAPI, WebSocket, WebSocketDisconnect,
     HTTPException, Query, Depends, Header, Request, Response,
+    BackgroundTasks,
 )
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
 from pydantic import BaseModel
 
 import jwt as pyjwt
@@ -265,8 +267,13 @@ def audit(
     ip: str = "",
     user_agent: str = "",
     metadata: Optional[Dict[str, Any]] = None,
-):
+    user: Optional[Dict[str, Any]] = None,
+) -> None:
     """Append-only audit entry. PII is redacted from all string fields."""
+    # If user dict passed, override defaults
+    if user:
+        actor = user.get("email", actor)
+        tenant = user.get("tenant", tenant)
     entry = {
         "id": f"a-{int(time.time() * 1000)}-{secrets.token_hex(4)}",
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1541,6 +1548,112 @@ def asdict_(obj):
         return asdict(obj)
     except Exception:
         return {"text": str(obj)}
+
+
+# ─── System Update Endpoints ───────────────────────────────────────────────
+
+_ROOT_PATH = Path(__file__).resolve().parent.parent
+UPDATE_SCRIPT = str(_ROOT_PATH / "scripts" / "auto_update.py")
+ROOT = str(_ROOT_PATH)
+
+
+def _run_update_script(args: list[str], timeout: int = 60) -> dict:
+    """Run auto_update.py with given args, return parsed result."""
+    import subprocess
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(UPDATE_SCRIPT), *args],
+            capture_output=True, text=True, timeout=timeout,
+            cwd=str(ROOT)
+        )
+        # Find the JSON blob in stdout (the log lines are not JSON).
+        # Use a balanced-brace search to find the outermost top-level object.
+        stdout = proc.stdout
+        # Find all '{' that start a top-level JSON object
+        # Strategy: try parsing from each '{' until one works
+        for start in range(len(stdout)):
+            if stdout[start] == '{':
+                # Find matching '}' via stack
+                depth = 0
+                in_str = False
+                esc = False
+                for i in range(start, len(stdout)):
+                    c = stdout[i]
+                    if esc: esc = False; continue
+                    if c == '\\': esc = True; continue
+                    if c == '"': in_str = not in_str; continue
+                    if in_str: continue
+                    if c == '{': depth += 1
+                    elif c == '}':
+                        depth -= 1
+                        if depth == 0:
+                            candidate = stdout[start:i+1]
+                            try:
+                                parsed = json.loads(candidate)
+                                if isinstance(parsed, dict):
+                                    parsed["_returncode"] = proc.returncode
+                                    return parsed
+                            except Exception:
+                                break  # try next '{'
+        return {"ok": False, "stdout": stdout, "stderr": proc.stderr,
+                "returncode": proc.returncode}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "reason": f"timeout after {timeout}s"}
+    except Exception as e:
+        return {"ok": False, "reason": str(e)}
+
+
+@app.get("/api/system/update/status")
+async def system_update_status(user=Depends(get_current_user)):
+    """Show update state: docker availability, last check, recent backups."""
+    if user["role"] not in ("admin", "operator"):
+        raise HTTPException(403, "admin/operator only")
+    return _run_update_script(["status"], timeout=15)
+
+
+@app.post("/api/system/update/check")
+async def system_update_check(user=Depends(get_current_user)):
+    """Check for available image updates. Does NOT apply."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "admin only")
+    audit("system.update.check", severity="info", summary="checking for image updates", user=user)
+    result = _run_update_script(["check"], timeout=60)
+    return result
+
+
+@app.post("/api/system/update/apply")
+async def system_update_apply(user=Depends(get_current_user),
+                              background_tasks: BackgroundTasks = None):
+    """Apply updates with backup. Long-running — returns immediately."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "admin only")
+    audit("system.update.apply", severity="warning",
+              summary="applying system updates", user=user)
+    # Run in foreground but with longer timeout
+    return _run_update_script(["apply"], timeout=600)
+
+
+@app.post("/api/system/update/rollback")
+async def system_update_rollback(user=Depends(get_current_user)):
+    """Rollback to last backup."""
+    if user["role"] != "admin":
+        raise HTTPException(403, "admin only")
+    audit("system.update.rollback", severity="warning",
+              summary="rolling back system updates", user=user)
+    return _run_update_script(["rollback"], timeout=600)
+
+
+@app.get("/api/system/update/history")
+async def system_update_history(user=Depends(get_current_user)):
+    """Show last 100 lines of update history."""
+    if user["role"] not in ("admin", "operator"):
+        raise HTTPException(403, "admin/operator only")
+    history = _ROOT_PATH / "logs" / "updates" / "history.log"
+    if not history.exists():
+        return {"lines": []}
+    text = history.read_text()
+    lines = text.split("\n")[-100:]
+    return {"lines": lines}
 
 
 # ─── Run ───────────────────────────────────────────────────────────────────
