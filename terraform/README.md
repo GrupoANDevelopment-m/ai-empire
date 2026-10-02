@@ -1,84 +1,112 @@
-# AI Empire — Multi-region Terraform
+# Multi-Region Terraform
 
-Production-grade infrastructure for AI Empire on AWS. Multi-region by default.
+Deploys AI Empire to multiple AWS regions with global DNS failover.
 
-## What's included
+## Architecture
 
-- **VPC** with public/private/database/intra subnets across 3 AZs
-- **ECS Fargate** cluster with FARGATE + FARGATE_SPOT capacity providers
-- **RDS PostgreSQL** (multi-AZ in prod) with pgvector + Performance Insights + Enhanced Monitoring
-- **ElastiCache Redis** with at-rest + in-transit encryption + auth token
-- **ALB** with WAF v2 (rate limit + AWS managed rule sets + GeoBlock)
-- **CloudFront** CDN in front of ALB, TLS 1.2+ only
-- **Route53** for custom domains
-- **S3** for ALB logs with lifecycle to Glacier
-- **Secrets Manager** for API keys (Anthropic, OpenAI, JWT)
-- **KMS** for encryption at rest
-- **GuardDuty** threat detection (production only)
-- **Security Groups** least-privilege per service
-- **IAM** roles with separation of duties
-- **VPC Flow Logs** to CloudWatch
-
-## Multi-region deployment
-
-```bash
-# EU region
-cd terraform/
-terraform init -backend-config=backend-eu.tfvars
-terraform apply -var-file=eu.tfvars
-
-# US region (different state)
-terraform init -backend-config=backend-us.tfvars
-terraform apply -var-file=us.tfvars
-
-# Failover / latency routing via Route53 latency records:
-# ai-empire.example.com  →  EU ALB
-# ai-empire.example.com  →  US ALB (latency-based)
 ```
-
-## Files
-
-- `main.tf` — all resources
-- `variables.tf` — backend config example
-- `backend-eu.tfvars` — S3+DynamoDB backend for EU region
-- `backend-us.tfvars` — same for US region
-- `eu.tfvars`, `us.tfvars` — per-region input variables
-
-## Prerequisites
-
-- Terraform >= 1.6
-- AWS account with permissions for VPC, ECS, RDS, ElastiCache, ALB, WAF, CloudFront, KMS, Secrets Manager, IAM, S3, Route53, CloudWatch
-- S3 bucket + DynamoDB table for remote state (create once per region)
-- ACM certificate ARN (for HTTPS)
-
-## Cost (rough monthly estimate, prod)
-
-| Service | Cost |
-|---|---|
-| ECS Fargate (3 tasks × 2vCPU × 4GB) | ~$60 |
-| RDS db.r7g.large multi-AZ + 100GB | ~$280 |
-| ElastiCache cache.r7g.large × 3 | ~$135 |
-| ALB | ~$25 |
-| CloudFront | ~$5 (low traffic) |
-| NAT Gateway × 3 | ~$100 |
-| KMS, Secrets Manager, CloudWatch | ~$10 |
-| **Total** | **~$615/month** |
-
-Add $5-50/month for Anthropic/OpenAI API usage on top.
+                    ┌─────────────────┐
+                    │  Route 53 (DNS) │
+                    │  Health check   │
+                    └────────┬────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              │              │              │
+              ▼              ▼              ▼
+       ┌────────────┐ ┌────────────┐ ┌────────────┐
+       │ us-east-1  │ │ eu-west-1  │ │ ap-southeast│
+       │  ALB+EC2   │ │  ALB+EC2   │ │  ALB+EC2    │
+       │  ASG 2-6   │ │  ASG 2-6   │ │  ASG 1-3    │
+       └─────┬──────┘ └─────┬──────┘ └─────┬───────┘
+             │              │              │
+             └──────────────┼──────────────┘
+                            │
+                ┌───────────┴──────────┐
+                │                      │
+                ▼                      ▼
+        ┌──────────────┐      ┌──────────────┐
+        │ RDS Postgres │      │  S3 Backups  │
+        │ Multi-AZ     │      │  Cross-region│
+        │ Encrypted    │      │  Versioned   │
+        └──────────────┘      └──────────────┘
+```
 
 ## Quick start
 
 ```bash
-# 1. Bootstrap state backend (one-time per region)
-./scripts/tf-bootstrap.sh eu-west-1
+# 1. Configure backend (S3 + DynamoDB)
+aws s3api create-bucket --bucket ai-empire-terraform-state --region us-east-1
+aws dynamodb create-table \
+  --table-name ai-empire-terraform-locks \
+  --attribute-definitions AttributeName=LockID,AttributeType=S \
+  --key-schema AttributeName=LockID,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST
 
-# 2. Deploy
-cd terraform
-terraform init -backend-config=backend-eu.tfvars
-terraform plan -var-file=eu.tfvars
-terraform apply -var-file=eu.tfvars
+# 2. Initialize
+terraform init
 
-# 3. Get endpoints
-terraform output alb_dns_name
-terraform output cloudfront_domain
+# 3. Plan
+terraform plan -var-file=prod.tfvars
+
+# 4. Apply
+terraform apply -var-file=prod.tfvars
 ```
+
+## Customization
+
+### Add region
+```hcl
+# prod.tfvars
+regions = ["us-east-1", "eu-west-1", "ap-southeast-1", "sa-east-1"]
+```
+
+### Bigger instances
+```hcl
+instance_type = "t3.xlarge"  # 4 vCPU, 16 GB RAM
+```
+
+### More replicas
+```hcl
+min_instances = 3
+max_instances = 10
+```
+
+## Modules
+
+- `main.tf` — root module
+- `modules/network/` — VPC, subnets, NAT, security groups
+- `modules/compute/` — ASG, launch template, ALB
+- `modules/compute/user_data.sh` — bootstrap script
+
+## Cost estimate (production)
+
+| Resource | Quantity | Monthly USD |
+|----------|----------|-------------|
+| EC2 t3.large | 6 (2 per region) | ~$280 |
+| ALB | 3 | ~$75 |
+| RDS db.t3.medium Multi-AZ | 1 | ~$120 |
+| EBS gp3 100 GB | 6 | ~$60 |
+| S3 backups 100 GB | 1 | ~$3 |
+| Data transfer | varies | ~$50 |
+| **Total** | | **~$590/mo** |
+
+## Disaster recovery
+
+RPO/RTO targets:
+- **RPO**: 1 hour (hourly backups to S3)
+- **RTO**: 15 minutes (Route 53 failover to other region)
+
+Test DR quarterly:
+```bash
+# Simulate region failure
+aws ec2 stop-instances --instance-ids i-xxx --region us-east-1
+
+# Verify Route 53 failover
+dig ai-empire.example.com
+```
+
+## See also
+
+- `docs/MULTI_REGION.md` — architecture details
+- `runbooks/disaster-recovery.md` — DR procedures
+- `terraform/main.tf` — root config

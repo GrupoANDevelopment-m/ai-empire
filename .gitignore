@@ -82,3 +82,5 @@ package-lock.json
 *.swp
 empire_data/
 empire_registry.yaml
+prod.tfvars
+*.tfvars
