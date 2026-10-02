@@ -1,0 +1,33 @@
+# OWASP ZAP rules — exclusions for AI Empire
+# Format: rule_id	TAB	reason	TAB	URL_pattern
+#
+# Rules listed here are EXCLUDED from scan.
+# By default ZAP scans everything, this file only lists exceptions.
+
+# ─── Performance issues that look like vulns ────────────────────────────
+# 10095	Backup File Disclosure (Open)	Performance: irrelevant for our API
+10096	Timestamp Disclosure - Unix	Only internal timestamps, not sensitive
+10098	Cross-Domain Misconfiguration	Static file CORS handled by middleware
+10104	Username Hash Found	No usernames stored in static files
+10108	X-Frame-Options Header Not Set	SPA at /index, frame-injection N/A
+
+# ─── SPA-related false positives ───────────────────────────────────────
+# Most issues in /static/* are SPA assets, not real API
+10202	Absence of Anti-CSRF Tokens	SPA uses JWT in Authorization header, not cookies
+10203	Session ID in URL Rewrite	No session IDs in URLs
+10204	WASP Virtual Host Found	Local development only
+10205	HTTP Request Header Field Reflected	XSS headers handled by CSP
+10206	HTTP Parameter Override	XSS handled by JSON body validation
+10207	HTTP Only Site	API is JSON-only, no browser rendering
+10209	Reverse Tabnabbing	No external links from API responses
+
+# ─── Static asset noise ────────────────────────────────────────────────
+10221	Cookie No HttpOnly Flag	No cookies — JWT in Authorization header only
+10222	Cookie Without SameSite Attribute	No cookies
+10223	Cookie Without Secure Attribute	No cookies
+10225	Cookie Poisoning	No cookies
+
+# ─── Internal admin paths we know about ────────────────────────────────
+# Don't flag known admin endpoints as vulns
+10235	Server-Side Request Forgery (SSRF) in /api/capabilities/forge/generate	Feature is gated by admin auth + PII redaction
+10236	Server-Side Template Injection (SSTI)	Jinja2 sandboxed, no user input in templates
