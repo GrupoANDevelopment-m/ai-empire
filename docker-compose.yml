@@ -832,12 +832,29 @@ services:
     container_name: ai-empire-watchtower
     profiles:
     - gateway
+    command: >
+      --cleanup
+      --label-enable
+      --schedule "0 0 4 * * *"
+      --timeout 60s
+      --include-stopped
+      --monitor-only=false
+      --rolling-restart=true
+      --label com.empire.auto-update=true
     volumes:
     - /var/run/docker.sock:/var/run/docker.sock
     environment:
+      TZ: ${TZ:-UTC}
       WATCHTOWER_CLEANUP: 'true'
-      WATCHTOWER_POLL_INTERVAL: 300
+      WATCHTOWER_POLL_INTERVAL: '86400'
       WATCHTOWER_LABEL_ENABLE: 'true'
+      WATCHTOWER_ROLLING_RESTART: 'true'
+      WATCHTOWER_TIMEOUT: '60s'
+      WATCHTOWER_INCLUDE_STOPPED: 'true'
+      WATCHTOWER_SCHEDULE: '0 0 4 * * *'
+      WATCHTOWER_MONITOR_ONLY: 'false'
+      WATCHTOWER_NOTIFICATIONS: 'shoutrrr'
+      WATCHTOWER_NOTIFICATION_URL: ${WATCHTOWER_NOTIFY_URL:-}
     networks:
     - internal
 
