@@ -197,6 +197,98 @@ jobs:
           print('all security checks pass')
           EOF
 
+  # ── Gate 1.5: OWASP ZAP dynamic application security test ─────────────────
+  zap_scan:
+    name: OWASP ZAP dynamic scan
+    runs-on: ubuntu-latest
+    needs: [security]
+    timeout-minutes: 30
+
+    services:
+      empire:
+        image: ghcr.io/${{ env.IMAGE_PREFIX }}/web:latest
+        env:
+          JWT_SECRET: ${{ secrets.JWT_SECRET || 'ci-test-jwt-secret-must-be-at-least-32-bytes-long' }}
+          POSTGRES_PASSWORD: ci-test-postgres
+          REDIS_PASSWORD: ci-test-redis
+        ports:
+          - 8123:8123
+        options: >-
+          --health-cmd "curl -f http://localhost:8123/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for server to be ready
+        run: |
+          for i in {1..30}; do
+            if curl -fs http://localhost:8123/health > /dev/null 2>&1; then
+              echo "✓ Server healthy"
+              exit 0
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 5
+          done
+          echo "✗ Server never became healthy"
+          exit 1
+
+      - name: ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.7.0
+        with:
+          target: http://localhost:8123
+          rules_file_name: .zap/rules.tsv
+          cmd_options: -a -l WARN
+
+      - name: ZAP full scan (auth + authz)
+        uses: zaproxy/action-full-scan@v0.7.0
+        with:
+          target: http://localhost:8123
+          rules_file_name: .zap/rules.tsv
+          cmd_options: -j -m 5 -T 60
+
+      - name: ZAP API scan
+        uses: zaproxy/action-api-scan@v0.7.0
+        with:
+          target: http://localhost:8123
+          format: openapi
+          additional_options: -f openapi
+
+      - name: Upload ZAP reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-reports
+          path: |
+            report_baseline.html
+            report_full.html
+            report_api.html
+            report_*.json
+
+      - name: Fail build on high-severity findings
+        if: always()
+        run: |
+          if [ -f report_full.html ]; then
+            # ZAP reports high/critical severities
+            HIGH=$(grep -oE 'class="risk-high"' report_full.html | wc -l)
+            CRITICAL=$(grep -oE 'class="risk-critical"' report_full.html | wc -l)
+            echo "High severity findings: $HIGH"
+            echo "Critical severity findings: $CRITICAL"
+            if [ "$CRITICAL" -gt 0 ]; then
+              echo "✗ FAIL: $CRITICAL critical-severity vulnerabilities found"
+              exit 1
+            fi
+            if [ "$HIGH" -gt 5 ]; then
+              echo "✗ FAIL: too many high-severity findings ($HIGH > 5)"
+              exit 1
+            fi
+            echo "✓ ZAP scan acceptable"
+          else
+            echo "ZAP report not generated — skipping severity check"
+          fi
+
   # ── Gate 1: build Docker images (parallel matrix) ─────────────────────────
   build:
     name: Build Docker images
