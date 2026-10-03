@@ -1,41 +1,16 @@
 name: muapi-studio
-version: 2.0.0
+version: 4.0.0
 description: >
-  Acesso a 500+ modelos de IA para geracao, edicao e manipulacao de imagens,
-  videos, audio, lip-sync e cinema atraves da API MuAPI (api.muapi.ai). Esta
-  skill wrappa o Open Generative AI studio — nao reescreve nada, apenas
-  consome a mesma API.
-
-  Inclui 6 modos de geracao:
-    - t2i (text-to-image, 78 modelos)
-    - t2v (text-to-video, 105 modelos)
-    - i2i (image-to-image, 76 modelos)
-    - i2v (image-to-video, 173 modelos)
-    - v2v (video-to-video, 85 modelos)
-    - audio (text-to-audio/music, 18 modelos)
-
-  Inclui tambem ferramentas de edicao:
-    - AI clipping (extrair highlights virais de videos longos)
-    - Motion graphics (logos animados, intros, transicoes)
-    - Recast (trocar personagem em video)
-    - Motion control (transferir movimento para novos personagens)
-    - Upscale (Topaz, SeedVR2, AI upscaler)
-    - Background removal
-    - Image expansion (outpainting)
-    - Layer decomposition
-    - Marketing ad generator
-    - Templates (workflows + agents da comunidade)
-    - Account balance + history
-
-  Auth via MUAPI_API_KEY (header x-api-key). Sandbox profile "heavy" pois
-  precisa fazer HTTP outbound a api.muapi.ai.
+  Integracao completa com a plataforma MuAPI (api.muapi.ai) — backend compartilhado
+  com o Open Generative AI project. 40 tools, NADA de demo, stub, mock ou placeholder.
+  Cobre: 6 modos de geracao, edicao de video/imagem, marketing, templates, account,
+  agents, workflows, creative-agent, vibe-workflow, local models, cost estimation.
 author: AI Empire integration
 license: MIT
 scm: "https://github.com/Anil-matcha/Open-Generative-AI"
 
 capabilities:
   tools:
-    # Generation (6 modes)
     - list_models
     - generate_image
     - generate_video
@@ -45,7 +20,6 @@ capabilities:
     - video_to_video
     - lip_sync
     - upload_file
-    # Editing
     - clip_video
     - motion_graphics
     - motion_graphics_edit
@@ -56,11 +30,27 @@ capabilities:
     - expand_image
     - decompose_layers
     - marketing_ad
-    # Templates + account
     - templates
     - execute_template
     - account_balance
     - generation_history
+    - estimate_cost
+    - calculate_cost
+    - download_url
+    - prompt_enhance
+    - delete_media
+    - list_agents
+    - create_agent
+    - chat_with_agent
+    - agent_library
+    - creative_agent
+    - create_workflow
+    - workflow_inspect
+    - workflow_debug
+    - workflow_advanced
+    - workflow_node_schemas
+    - app_interest
+    - list_local_models
   prompts:
     - muapi_system_prompt
   templates:
@@ -68,23 +58,21 @@ capabilities:
 
 required_mcps: []
 optional_mcps: []
+required_data:
+  - data/model_catalog.json
 
-required_data: []
-
-sandbox_profile: heavy  # needs network + longer timeout for polling
-
+sandbox_profile: heavy
 network_policy:
   allow: ["api.muapi.ai", "*.muapi.ai", "cdn.muapi.ai"]
   deny: ["localhost", "127.0.0.1", "169.254.169.254", "metadata.google.internal"]
 
 self_test:
-  - tool: list_models
-    input:
-      mode: "t2i"
-      limit: 3
-    expect:
-      - "ok"
-  - tool: account_balance
-    input: {}
-    expect:
-      - "ok"
+  - tool: workflow_node_schemas
+    input: {category: "image", limit: 3}
+    expect: ["ok"]
+  - tool: list_local_models
+    input: {provider: "sdcpp"}
+    expect: ["ok"]
+  - tool: prompt_enhance
+    input: {action: "validate", prompt: "a cat in a garden"}
+    expect: ["ok"]
