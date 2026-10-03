@@ -1,17 +1,31 @@
 name: muapi-studio
-version: 1.0.0
+version: 2.0.0
 description: >
-  Acesso a 500+ modelos de IA para geracao de imagens, videos, audio, lip-sync
-  e cinema atraves da API MuAPI (api.muapi.ai). Esta skill wrappa o Open
-  Generative AI studio — nao reescreve nada, apenas consome a mesma API.
+  Acesso a 500+ modelos de IA para geracao, edicao e manipulacao de imagens,
+  videos, audio, lip-sync e cinema atraves da API MuAPI (api.muapi.ai). Esta
+  skill wrappa o Open Generative AI studio — nao reescreve nada, apenas
+  consome a mesma API.
 
-  Inclui suporte a 6 modos de geracao:
+  Inclui 6 modos de geracao:
     - t2i (text-to-image, 78 modelos)
     - t2v (text-to-video, 105 modelos)
     - i2i (image-to-image, 76 modelos)
     - i2v (image-to-video, 173 modelos)
     - v2v (video-to-video, 85 modelos)
     - audio (text-to-audio/music, 18 modelos)
+
+  Inclui tambem ferramentas de edicao:
+    - AI clipping (extrair highlights virais de videos longos)
+    - Motion graphics (logos animados, intros, transicoes)
+    - Recast (trocar personagem em video)
+    - Motion control (transferir movimento para novos personagens)
+    - Upscale (Topaz, SeedVR2, AI upscaler)
+    - Background removal
+    - Image expansion (outpainting)
+    - Layer decomposition
+    - Marketing ad generator
+    - Templates (workflows + agents da comunidade)
+    - Account balance + history
 
   Auth via MUAPI_API_KEY (header x-api-key). Sandbox profile "heavy" pois
   precisa fazer HTTP outbound a api.muapi.ai.
@@ -21,6 +35,7 @@ scm: "https://github.com/Anil-matcha/Open-Generative-AI"
 
 capabilities:
   tools:
+    # Generation (6 modes)
     - list_models
     - generate_image
     - generate_video
@@ -30,6 +45,22 @@ capabilities:
     - video_to_video
     - lip_sync
     - upload_file
+    # Editing
+    - clip_video
+    - motion_graphics
+    - motion_graphics_edit
+    - recast_character
+    - motion_control
+    - upscale_image
+    - remove_background
+    - expand_image
+    - decompose_layers
+    - marketing_ad
+    # Templates + account
+    - templates
+    - execute_template
+    - account_balance
+    - generation_history
   prompts:
     - muapi_system_prompt
   templates:
@@ -50,11 +81,10 @@ self_test:
   - tool: list_models
     input:
       mode: "t2i"
+      limit: 3
     expect:
       - "ok"
-  - tool: list_models
-    input:
-      mode: "all"
-      limit: 5
+  - tool: account_balance
+    input: {}
     expect:
       - "ok"
