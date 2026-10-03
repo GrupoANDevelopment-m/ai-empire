@@ -189,11 +189,14 @@ class SkillRegistry:
         manifest.source = source
         manifest.installed_at = manifest.installed_at or datetime.now(timezone.utc).isoformat()
         manifest.hash = sha256_file(path / "skill.yaml")
-        # Discover files (filter out sandbox artifacts like _runner.py and tool.py)
+        # Discover files (filter out sandbox artifacts like _runner.py and tool.py
+        # and helper modules — files starting with _ are internal helpers, not tools)
         sandbox_artifacts = {"_runner.py", "tool.py", "__pycache__"}
         tools = sorted(
             p.name for p in (path / "tools").glob("*.py")
-            if (path / "tools").is_dir() and p.name not in sandbox_artifacts
+            if (path / "tools").is_dir()
+            and p.name not in sandbox_artifacts
+            and not p.name.startswith("_")
         )
         prompts = sorted(p.name for p in (path / "prompts").glob("*.md") if (path / "prompts").is_dir()) if (path / "prompts").is_dir() else []
         templates = sorted(p.name for p in (path / "templates").glob("*") if (path / "templates").is_dir()) if (path / "templates").is_dir() else []
@@ -328,9 +331,17 @@ class SkillRegistry:
                 return False, f"self_test references missing tool: {tool_name}"
             code = tool_path.read_text()
             inputs = case.get("input", {})
+            # Copy all helper modules (files starting with _) into the sandbox workdir
+            extra_files = {}
+            tools_dir = skill.path / "tools"
+            if tools_dir.exists():
+                for helper in tools_dir.glob("*.py"):
+                    if helper.name == f"{tool_name}.py":
+                        continue
+                    extra_files[helper.name] = helper.read_text()
             # Use a temporary workdir so we don't pollute the skill directory
             result = run_in_sandbox(code, inputs=inputs, profile=profile,
-                                    workdir=None)  # sandbox creates tmpdir
+                                    workdir=None, extra_files=extra_files)
             if not result.success:
                 return False, f"tool {tool_name} failed: {result.stderr[:300]}"
         return True, "all self_tests passed"
