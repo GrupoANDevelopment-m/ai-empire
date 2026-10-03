@@ -243,9 +243,14 @@ def run_in_sandbox(
     *,
     profile: SandboxProfile = None,
     workdir: Optional[Path] = None,
+    extra_files: Optional[Dict[str, str]] = None,
 ) -> SandboxResult:
     """
     Execute Python code in a sandboxed subprocess.
+
+    extra_files: optional dict of {relative_path: file_contents} to copy
+                 into the workdir alongside the main tool. Useful for skills
+                 that need helper modules (e.g. shared http client).
 
     Returns SandboxResult with output and any violations detected.
     """
@@ -276,6 +281,16 @@ def run_in_sandbox(
         # so imports work if the tool expects its own filename
         original_name = "user_code.py"
         (workdir / original_name).write_text(code, encoding="utf-8")
+
+        # Copy extra helper files (skills with multiple modules)
+        if extra_files:
+            for rel_path, content in extra_files.items():
+                target = workdir / rel_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if isinstance(content, bytes):
+                    target.write_bytes(content)
+                else:
+                    target.write_text(content, encoding="utf-8")
 
         # 3. Write inputs to a file (avoids argv size limits)
         if inputs:

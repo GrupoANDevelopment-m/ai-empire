@@ -1,0 +1,60 @@
+name: muapi-studio
+version: 1.0.0
+description: >
+  Acesso a 500+ modelos de IA para geracao de imagens, videos, audio, lip-sync
+  e cinema atraves da API MuAPI (api.muapi.ai). Esta skill wrappa o Open
+  Generative AI studio — nao reescreve nada, apenas consome a mesma API.
+
+  Inclui suporte a 6 modos de geracao:
+    - t2i (text-to-image, 78 modelos)
+    - t2v (text-to-video, 105 modelos)
+    - i2i (image-to-image, 76 modelos)
+    - i2v (image-to-video, 173 modelos)
+    - v2v (video-to-video, 85 modelos)
+    - audio (text-to-audio/music, 18 modelos)
+
+  Auth via MUAPI_API_KEY (header x-api-key). Sandbox profile "heavy" pois
+  precisa fazer HTTP outbound a api.muapi.ai.
+author: AI Empire integration
+license: MIT
+scm: "https://github.com/Anil-matcha/Open-Generative-AI"
+
+capabilities:
+  tools:
+    - list_models
+    - generate_image
+    - generate_video
+    - generate_audio
+    - image_to_image
+    - image_to_video
+    - video_to_video
+    - lip_sync
+    - upload_file
+  prompts:
+    - muapi_system_prompt
+  templates:
+    - media_generation_request
+
+required_mcps: []
+optional_mcps: []
+
+required_data: []
+
+sandbox_profile: heavy  # needs network + longer timeout for polling
+
+network_policy:
+  allow: ["api.muapi.ai", "*.muapi.ai", "cdn.muapi.ai"]
+  deny: ["localhost", "127.0.0.1", "169.254.169.254", "metadata.google.internal"]
+
+self_test:
+  - tool: list_models
+    input:
+      mode: "t2i"
+    expect:
+      - "ok"
+  - tool: list_models
+    input:
+      mode: "all"
+      limit: 5
+    expect:
+      - "ok"

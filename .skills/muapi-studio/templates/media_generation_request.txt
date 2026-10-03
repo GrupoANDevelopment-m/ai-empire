@@ -1,0 +1,12 @@
+Subject: Media Generation Request
+
+Mode: {{ mode | default("t2i") }}
+Model: {{ model | default("auto") }}
+Prompt: {{ prompt }}
+Aspect Ratio: {{ aspect_ratio | default("16:9") }}
+Duration: {{ duration | default("5") }}s
+Resolution: {{ resolution | default("auto") }}
+
+Notes:
+- {{ notes | default("Generate the best quality version of this prompt.") }}
+- Save the output URL for later use in social publishing workflow.
