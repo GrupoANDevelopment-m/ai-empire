@@ -1,2 +1,43 @@
 name: browser-automation
 version: 1.0.0
+description: >
+  Browser automation via Playwright with PERSISTENT user sessions.
+  Pattern from zk1tty/login-run + toema/n8n-playwright + browser-use.
+author: AI Empire integration
+license: MIT
+capabilities:
+  tools:
+    - browser_open_session
+    - browser_close_session
+    - browser_list_sessions
+    - browser_navigate
+    - browser_click
+    - browser_fill
+    - browser_extract
+    - browser_screenshot
+    - browser_evaluate
+    - browser_wait
+    - browser_cookies
+    - browser_save_state
+    - browser_load_state
+  prompts:
+    - browser_system_prompt
+  templates:
+    - browser_action_request
+required_mcps: []
+optional_mcps: []
+required_data: []
+sandbox_profile: browser
+network_policy:
+  allow: ["*"]
+  deny: ["169.254.169.254", "metadata.google.internal", "metadata.aws"]
+self_test:
+  - tool: browser_list_sessions
+    input: {}
+    expect: ["ok"]
+  - tool: browser_open_session
+    input: {profile: "_selftest"}
+    expect: ["ok"]
+  - tool: browser_close_session
+    input: {profile: "_selftest"}
+    expect: ["ok"]
