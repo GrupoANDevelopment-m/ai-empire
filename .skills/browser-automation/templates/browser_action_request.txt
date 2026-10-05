@@ -1,0 +1,6 @@
+# Browser Action Request
+
+Tenant: {{tenant}}
+Profile: {{profile}}
+Goal: {{goal}}
+Steps: {{steps}}
