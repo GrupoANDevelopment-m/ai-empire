@@ -716,6 +716,99 @@ def _channel_env_keys(channel: str) -> List[str]:
     }.get(channel, [])
 
 
+
+# ─── Browser Automation ───────────────────────────────────────────────────────
+
+@app.get("/api/browser/sessions")
+async def list_browser_sessions(user=Depends(get_current_user)):
+    """List live browser sessions for the current tenant."""
+    try:
+        from empire.browser.session import get_manager
+        mgr = get_manager()
+        sessions = mgr.list_sessions(tenant=user["tenant"])
+        return {"ok": True, "sessions": mgr.to_dicts(sessions), "count": len(sessions)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+@app.post("/api/browser/sessions")
+async def open_browser_session(req: Request, user=Depends(get_current_user)):
+    """Open a persistent browser session."""
+    try:
+        data = await req.json()
+    except Exception:
+        data = {}
+    tenant = data.get("tenant", user["tenant"])
+    profile = data.get("profile", "default")
+    headless = data.get("headless", True)
+    browser_type = data.get("browser_type", "chromium")
+    start_url = data.get("start_url", "about:blank")
+
+    from empire.browser.session import get_manager
+    from empire.browser.actions import run_action_sync
+
+    mgr = get_manager()
+    session = mgr.get_or_create(
+        tenant=tenant, profile=profile,
+        headless=headless, browser_type=browser_type,
+    )
+    nav = run_action_sync(session.session_id, "navigate", {"url": start_url})
+    audit("browser.open", actor=user["email"], tenant=user["tenant"],
+          summary=f"browser session {session.session_id} opened",
+          metadata={"profile": profile, "browser_type": browser_type, "headless": headless})
+    return {
+        "ok": True,
+        "session_id": session.session_id,
+        "session": session.__dict__,
+        "navigation": nav,
+    }
+
+
+@app.delete("/api/browser/sessions/{session_id}")
+async def close_browser_session(session_id: str, user=Depends(get_current_user),
+                                 hard: str = Query(False)):
+    """Close a session (optionally hard-reset the persistent profile)."""
+    from empire.browser.session import get_manager
+    mgr = get_manager()
+    if hard.lower() in ("1", "yes"):
+        ok = mgr.hard_reset(session_id)
+        audit("browser.hard_reset", actor=user["email"], tenant=user["tenant"],
+              summary=f"browser session {session_id} hard-reset")
+        return {"ok": ok, "hard_reset": True}
+    ok = mgr.close(session_id)
+    audit("browser.close", actor=user["email"], tenant=user["tenant"],
+          summary=f"browser session {session_id} closed")
+    return {"ok": ok}
+
+
+@app.post("/api/browser/sessions/{session_id}/action")
+async def browser_action(session_id: str, req: Request,
+                         user=Depends(get_current_user)):
+    """Drive an action on a session (navigate, click, fill, extract, ...)."""
+    try:
+        data = await req.json()
+    except Exception:
+        data = {}
+    action = data.get("action")
+    if not action:
+        raise HTTPException(400, "action required")
+    params = data.get("params") or {k: v for k, v in data.items() if k != "action"}
+
+    from empire.browser.actions import run_action_sync
+    result = run_action_sync(session_id, action, params)
+    audit("browser.action", actor=user["email"], tenant=user["tenant"],
+          summary=f"browser.{action}", metadata={"session_id": session_id})
+    return {"ok": "error" not in result, **result}
+
+
+@app.get("/api/browser/sessions/{session_id}/screenshot")
+async def browser_screenshot(session_id: str, user=Depends(get_current_user),
+                              full_page: bool = Query(True)):
+    """Take a screenshot of the current page."""
+    from empire.browser.actions import run_action_sync
+    return run_action_sync(session_id, "screenshot", {"full_page": full_page})
+
+
 # ─── Metrics ───────────────────────────────────────────────────────────────
 
 @app.get("/api/metrics/snapshot")

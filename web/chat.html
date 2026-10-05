@@ -219,6 +219,21 @@
       run them, then write a natural answer. I remember the whole conversation.
     </div>
   </div>
+
+    <details open style="margin-top:1rem">
+      <summary style="cursor:pointer;color:var(--accent);font-weight:600">🌐 Browser Automation</summary>
+      <div id="browser-tools" style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-top:.5rem"></div>
+      <div style="margin-top:.5rem;display:flex;gap:.4rem">
+        <input id="br-tenant" placeholder="tenant" value="default" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.3rem .5rem;border-radius:4px;font-size:.75rem">
+        <input id="br-profile" placeholder="profile" value="default" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.3rem .5rem;border-radius:4px;font-size:.75rem">
+      </div>
+      <div id="br-sessions" style="margin-top:.4rem;font-size:.7rem;color:var(--muted);max-height:80px;overflow-y:auto"></div>
+      <div style="margin-top:.4rem;display:flex;gap:.4rem">
+        <button onclick="brOpen()" style="flex:1;background:var(--accent);color:#000;border:none;padding:.4rem;border-radius:4px;cursor:pointer;font-size:.75rem;font-weight:600">Open</button>
+        <button onclick="brClose()" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:.4rem;border-radius:4px;cursor:pointer;font-size:.75rem">Close</button>
+      </div>
+    </details>
+
 </aside>
 
 <main>
@@ -385,5 +400,50 @@
     );
   }, 500);
 </script>
+
+<script>
+async function brOpen() {
+  const tenant = document.getElementById('br-tenant').value;
+  const profile = document.getElementById('br-profile').value;
+  const r = await fetch('/api/browser/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.getItem('empire.token') },
+    body: JSON.stringify({ tenant, profile, headless: true, start_url: 'about:blank' })
+  });
+  const data = await r.json();
+  if (data.ok) { brRefresh(); } else { alert('open failed: ' + JSON.stringify(data)); }
+}
+async function brClose() {
+  const tenant = document.getElementById('br-tenant').value;
+  const profile = document.getElementById('br-profile').value;
+  const sid = tenant + '::' + profile;
+  const r = await fetch('/api/browser/sessions/' + encodeURIComponent(sid), {
+    method: 'DELETE',
+    headers: { 'Authorization': 'Bearer ' + localStorage.getItem('empire.token') }
+  });
+  const data = await r.json();
+  brRefresh();
+}
+async function brRefresh() {
+  const r = await fetch('/api/browser/sessions', {
+    headers: { 'Authorization': 'Bearer ' + localStorage.getItem('empire.token') }
+  });
+  const data = await r.json();
+  const el = document.getElementById('br-sessions');
+  if (!data.ok || !data.sessions.length) {
+    el.innerHTML = '<em style="color:var(--muted)">no sessions</em>';
+  } else {
+    el.innerHTML = data.sessions.map(s =>
+      `<div style="padding:.2rem 0;border-bottom:1px solid var(--border)">
+        <strong>${escapeHtml(s.profile_name)}</strong> · ${s.browser_type}
+        <br><span style="color:var(--muted);font-size:.65rem">${s.current_url || '(empty)'}</span>
+      </div>`
+    ).join('');
+  }
+}
+function escapeHtml(s) { return String(s||'').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+brRefresh();
+</script>
+
 </body>
 </html>
