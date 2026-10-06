@@ -44,6 +44,15 @@ from datetime import datetime, timedelta, timezone
 # Ensure the project root is on sys.path so `empire.*` imports work
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.util import get_remote_address
+    from slowapi.errors import RateLimitExceeded
+    _SLOWAPI = True
+except Exception:
+    _SLOWAPI = False
+
+from fastapi import FastAPI, Request, HTTPException, status, Depends, Response, Query, BackgroundTasks, UploadFile, File
 from fastapi import (
     FastAPI, WebSocket, WebSocketDisconnect,
     HTTPException, Query, Depends, Header, Request, Response,
@@ -807,6 +816,58 @@ async def browser_screenshot(session_id: str, user=Depends(get_current_user),
     """Take a screenshot of the current page."""
     from empire.browser.actions import run_action_sync
     return run_action_sync(session_id, "screenshot", {"full_page": full_page})
+
+
+# ─── HTML Sanitization (bleach) ───────────────────────────────────────────────
+
+try:
+    import bleach
+    _BLEACH_AVAILABLE = True
+except Exception:
+    _BLEACH_AVAILABLE = False
+
+
+@app.post("/api/security/sanitize")
+async def sanitize_html(req: Request, user=Depends(get_current_user)):
+    """Sanitize untrusted HTML using bleach (real XSS prevention).
+
+    Replaces inline <script>, javascript: URLs, dangerous attrs, etc.
+    Used by the chat frontend before rendering user-generated content.
+    """
+    if not _BLEACH_AVAILABLE:
+        raise HTTPException(503, "bleach not installed")
+    try:
+        data = await req.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    html = data.get("html", "")
+    # Conservative allowlist — most tags, no scripts/styles/forms/iframes
+    allowed_tags = [
+        "a", "b", "i", "em", "strong", "p", "br", "hr", "ul", "ol", "li",
+        "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "code",
+        "span", "div", "img", "table", "thead", "tbody", "tr", "td", "th",
+    ]
+    allowed_attrs = {
+        "a": ["href", "title", "rel"],
+        "img": ["src", "alt", "width", "height"],
+        "span": ["class"],
+        "div": ["class"],
+    }
+    clean = bleach.clean(
+        html, tags=allowed_tags, attributes=allowed_attrs,
+        protocols=["http", "https", "mailto"], strip=True,
+    )
+    # Force rel="noopener noreferrer" on links
+    clean = bleach.linkifier.Linker(
+        callbacks=[bleach.callbacks.nofollow, bleach.callbacks.target_blank],
+    ).linkify(clean)
+    audit("security.sanitize", actor=user["email"], tenant=user["tenant"],
+          summary=f"sanitized {len(html)} -> {len(clean)} bytes",
+          metadata={"engine": "bleach", "version": bleach.__version__})
+    return {"ok": True, "html": clean, "engine": "bleach",
+            "version": bleach.__version__,
+            "original_length": len(html), "sanitized_length": len(clean)}
+
 
 
 # ─── Metrics ───────────────────────────────────────────────────────────────
