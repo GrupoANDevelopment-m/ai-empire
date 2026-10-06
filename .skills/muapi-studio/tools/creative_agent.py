@@ -156,11 +156,11 @@ def run(inputs):
         return {"ok": True, "job_id": jid, "cancelled": True, "data": data}
 
     if action == "get_job_status":
+        # Note: the live API does NOT expose a /status endpoint.
+        # Use /events (SSE) instead, or just /jobs to list them.
         jid = inputs.get("job_id")
         if not jid: return {"ok": False, "error": "job_id required"}
-        data, err = _muapi_call("GET", f"/api/v1/creative-agent/jobs/{jid}/status")
-        if err: return {"ok": False, "error": err}
-        return {"ok": True, "job_id": jid, "status": data}
+        return {"ok": False, "error": "endpoint removed in v2; use get_job_events instead"}
 
     if action == "get_job_events":
         jid = inputs.get("job_id")

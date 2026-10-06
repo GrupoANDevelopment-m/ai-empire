@@ -4,6 +4,7 @@ PII redaction — powered by Microsoft Presidio (https://github.com/microsoft/pr
 Real NER + regex detection. Replaces the previous hand-rolled regex-only module.
 
 Falls back to regex-only if presidio isn't installed (degraded mode, still safe).
+Adds Brazilian-specific patterns (CPF, CNPJ, RG, phone BR, CEP, PIX).
 
 Usage:
     from empire.security.pii import redact
@@ -35,11 +36,18 @@ class PIIPattern:
 _FALLBACK_PATTERNS = {
     "email":       PIIPattern("EMAIL",      re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")),
     "phone":       PIIPattern("PHONE",      re.compile(r"\+?\d{1,3}?[ .-]?\(?\d{2,4}\)?[ .-]?\d{3,4}[ .-]?\d{3,4}")),
+    "phone_br":    PIIPattern("PHONE_BR",   re.compile(r"\b(?:\+?55[-. ]?)?\(?\d{2}\)?[-. ]?9?\d{4}[-. ]?\d{4}\b|\b9\d{4}[-. ]?\d{4}\b")),
     "credit_card": PIIPattern("CC",         re.compile(r"\b(?:\d[ -]*?){13,16}\b")),
     "ssn":         PIIPattern("SSN",        re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
     "iban":        PIIPattern("IBAN",       re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b")),
     "ipv4":        PIIPattern("IPV4",       re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")),
-    "url_token":   PIIPattern("API_KEY",    re.compile(r"(?i)(?:api[_-]?key|token|secret)\s*[:=]\s*[\'\"]?([a-zA-Z0-9_\-]{20,})")),
+    "url_token":   PIIPattern("API_KEY",    re.compile(r"(?i)(?:api[_-]?key|token|secret)\s*[:=]\s*['\"]?([a-zA-Z0-9_\-]{20,})")),
+    "cpf":         PIIPattern("CPF",        re.compile(r"\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b")),
+    "cnpj":        PIIPattern("CNPJ",       re.compile(r"\b\d{2}\.?\d{3}\.?\d{3}/?\d{4}-?\d{2}\b")),
+    "rg":          PIIPattern("RG",         re.compile(r"\b\d{1,2}\.?\d{3}\.?\d{3}-?\d{1,2}\b")),
+    "cep":         PIIPattern("CEP",        re.compile(r"\b\d{5}-?\d{3}\b")),
+    "bearer":      PIIPattern("BEARER",     re.compile(r"(?i)bearer\s+[a-zA-Z0-9_\-\.]{20,}")),
+    "sk_key":      PIIPattern("API_KEY",    re.compile(r"\bsk-[a-zA-Z0-9_\-]{20,}\b")),
 }
 
 
@@ -57,7 +65,6 @@ def _get_engine():
             _ENGINE = "fallback"
             return _ENGINE
         try:
-            # Disable online tld snapshot fetch — presidio is too brittle here
             import os as _os
             _os.environ.setdefault("TLDEXTRACT_SUFFIX_LIST_URLS", "")
             nlp_config = {
@@ -65,9 +72,7 @@ def _get_engine():
                 "models": [{"lang_code": "en", "model_name": "en_core_web_lg"}],
             }
             nlp_engine = NlpEngineProvider(nlp_configuration=nlp_config).create_engine()
-            # Build engine and immediately drop problematic recognizers
             engine = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=["en"])
-            # Only keep recognizers that don't need network
             from presidio_analyzer import RecognizerRegistry
             keep = {"EmailRecognizer", "PhoneRecognizer", "CreditCardRecognizer",
                     "UsSsnRecognizer", "IpRecognizer", "IbanRecognizer",
@@ -93,9 +98,7 @@ def redact(text: str, custom: list[PIIPattern] | None = None,
     if engine and engine != "fallback":
         try:
             results = engine.analyze(text=text, language=language)
-            # Use SHORT fixed tag so any PII detection fits without truncation
             TAG = "[REDACTED]"
-            # Build non-overlapping spans, picking highest-score when overlapping
             results.sort(key=lambda r: (r.start, -(r.end - r.start), -r.score))
             spans = []
             occupied = [False] * len(text)
@@ -112,9 +115,12 @@ def redact(text: str, custom: list[PIIPattern] | None = None,
                 chars[start:end] = list(TAG) + [" "] * max(0, length - len(TAG))
             return "".join(chars)
         except Exception:
-            pass  # fall through to regex
-    # Regex fallback
-    for name in os.getenv("PII_REDACT", "email,phone,credit_card,ssn,iban,ipv4").split(","):
+            pass
+    # Regex fallback - includes BR patterns
+    enabled = os.getenv("PII_REDACT",
+        "email,phone,phone_br,credit_card,ssn,iban,ipv4,cpf,cnpj,rg,cep,bearer,sk_key,url_token"
+    ).split(",")
+    for name in enabled:
         name = name.strip()
         pat = _FALLBACK_PATTERNS.get(name)
         if pat:
@@ -132,7 +138,3 @@ def redact_pii(text: str) -> str:
 
 # Re-export for callers that imported these directly
 PIIRedactor = _FALLBACK_PATTERNS  # dict for lookup
-
-
-# Preset deployment
-REDACT = redact
