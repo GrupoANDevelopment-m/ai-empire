@@ -431,9 +431,82 @@ Responda APENAS com o código Python puro (sem ```python```)."""
         }
 
     def rollback(self, name: str, version: int) -> GeneratedTool:
-        """Rollback a tool to a previous version."""
-        # Simple rollback: re-generate with same name on first call
-        raise NotImplementedError("version history not yet implemented")
+        """Rollback a generated tool to a previous version.
+
+        Real behavior:
+          1. Look up version history for this tool (persisted in JSONL on disk)
+          2. Find the target version
+          3. Restore its code + manifest
+          4. Incrementally save
+        """
+        hist_path = self._registry_path.parent / "version_history.jsonl"
+        target = None
+        if hist_path.exists():
+            import json
+            for line in hist_path.read_text().splitlines():
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if entry.get("name") == name and entry.get("version") == version:
+                    target = entry
+                    break
+        if not target:
+            raise ValueError(
+                f"version {version} of tool '{name}' not found in history"
+            )
+        # Restore the tool
+        from pathlib import Path
+        tools_dir = self._registry_path.parent / "tools"
+        tools_dir.mkdir(parents=True, exist_ok=True)
+        path = tools_dir / f"{name}.py"
+        path.write_text(target["code"])
+        # Update manifest
+        for tool in self._registry.get("tools", []):
+            if tool.get("name") == name:
+                tool["code"] = text(target["code"])
+                tool["version"] = version
+                tool["manifest"] = target.get("manifest", tool["manifest"])
+                break
+        else:
+            self._registry["tools"].append({
+                "name": name,
+                "version": version,
+                "code": text(target["code"]),
+                "manifest": target.get("manifest", {}),
+                "created_at": target.get("created_at"),
+                "invoke_count": 0,
+                "error_count": 0,
+            })
+        self._save_registry()
+        return GeneratedTool(
+            name=name, version=version, code=target["code"],
+            manifest=target.get("manifest", {}),
+        )
+
+    def log_version(self, name: str, code: str, manifest: dict) -> None:
+        """Append a version entry to history (called when tools are generated)."""
+        import json
+        from datetime import datetime, timezone
+        hist_path = self._registry_path.parent / "version_history.jsonl"
+        hist_path.parent.mkdir(parents=True, exist_ok=True)
+        # Compute next version number
+        max_version = 0
+        if hist_path.exists():
+            for line in hist_path.read_text().splitlines():
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                if e.get("name") == name:
+                    max_version = max(max_version, e.get("version", 0))
+        next_version = max_version + 1
+        with open(hist_path, "a") as f:
+            f.write(json.dumps({
+                "name": name, "version": next_version,
+                "code": code, "manifest": manifest,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }) + "\n")
 
 
 # ─── Singleton ──────────────────────────────────────────────────────────────
