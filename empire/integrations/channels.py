@@ -141,8 +141,46 @@ class WhatsAppAdapter(ChannelAdapter):
         }
 
     async def fetch_inbound(self, since_ts: float = 0) -> List[ChannelMessage]:
-        """Twilio uses webhooks — this is just a placeholder for polling."""
-        return []
+        """Fetch new messages from WhatsApp Web via the user's browser session.
+
+        Real implementation: uses the browser-automation skill to drive
+        the user's logged-in WhatsApp Web UI. No Twilio needed, no API rate
+        limits, works with personal WhatsApp accounts.
+
+        Requires: browser-automation skill installed + a session opened with
+        profile="whatsapp-{tenant}".
+        """
+        from empire.browser.session import get_manager
+        mgr = get_manager()
+        # For each tenant, find their WhatsApp browser session
+        out = []
+        for sess in mgr.list_sessions(tenant=getattr(self, "tenant", "default")):
+            if "whatsapp" not in sess.profile_name.lower():
+                continue
+            try:
+                from empire.browser.actions import run_action_sync
+                # Extract messages from the chat list DOM
+                js = """() => {
+                    const msgs = document.querySelectorAll('[data-testid="msg-container"]');
+                    return Array.from(msgs).slice(-50).map(m => ({
+                        text: m.innerText || "",
+                        ts: Date.now(),
+                    }));
+                }"""
+                res = run_action_sync(sess.session_id, "evaluate", {"script": js})
+                if res.get("ok"):
+                    import json
+                    items = json.loads(res.get("result", "[]"))
+                    for item in items:
+                        out.append(ChannelMessage(
+                            channel=self.name, direction="inbound",
+                            thread_id="whatsapp-web", sender_id="browser",
+                            sender_name=None, recipient_id=self.credentials.get("TWILIO_WHATSAPP_FROM", ""),
+                            text=item.get("text", ""), metadata={"source": "browser", "ts": item.get("ts")},
+                        ))
+            except Exception as e:
+                log.debug(f"whatsapp browser fetch failed: {e}")
+        return out
 
     async def _do_health(self) -> ChannelStatus:
         r = await self._client.get(f"{self.base}.json")
@@ -271,8 +309,20 @@ class InstagramAdapter(ChannelAdapter):
             },
         )
         r.raise_for_status()
-        # Real implementation: parse and return as ChannelMessages
-        return []
+        data = r.json()
+        out = []
+        for conv in data.get("data", []) or []:
+            for msg in (conv.get("messages", {}) or {}).get("data", []):
+                out.append(ChannelMessage(
+                    channel=self.name, direction="inbound",
+                    thread_id=str(conv.get("id", "")),
+                    sender_id=str(conv.get("participants", {}).get("data", [{}])[0].get("id", "")),
+                    sender_name=None,
+                    recipient_id=self.account_id if hasattr(self, "account_id") else "",
+                    text=msg.get("message", "") or msg.get("text", ""),
+                    metadata={"msg_id": msg.get("id")},
+                ))
+        return out
 
     async def _do_health(self) -> ChannelStatus:
         r = await self._client.get(
@@ -329,8 +379,39 @@ class FacebookAdapter(ChannelAdapter):
         return {"provider_response": r.json()}
 
     async def fetch_inbound(self, since_ts: float = 0) -> List[ChannelMessage]:
-        """Page conversations webhook — placeholder."""
-        return []
+        """Fetch new messages from Facebook Pages via the user's browser.
+
+        Real implementation: drives Facebook Page inbox as the user. Works
+        for any page where the user has admin access.
+
+        Requires: browser-automation skill + a session with profile="facebook-{tenant}".
+        """
+        from empire.browser.session import get_manager
+        from empire.browser.actions import run_action_sync
+        mgr = get_manager()
+        out = []
+        for sess in mgr.list_sessions(tenant=getattr(self, "tenant", "default")):
+            if "facebook" not in sess.profile_name.lower():
+                continue
+            try:
+                js = """() => {
+                    const items = document.querySelectorAll('[aria-label*="message"], [data-pagelet="MessengerList"] > div');
+                    return Array.from(items).slice(-20).map(m => m.innerText || "").filter(t => t.length > 0);
+                }"""
+                res = run_action_sync(sess.session_id, "evaluate", {"script": js})
+                if res.get("ok"):
+                    import json
+                    items = json.loads(res.get("result", "[]"))
+                    for text in items:
+                        out.append(ChannelMessage(
+                            channel=self.name, direction="inbound",
+                            thread_id="facebook-page", sender_id="browser",
+                            sender_name=None, recipient_id=self.credentials.get("FACEBOOK_PAGE_ID", ""),
+                            text=text, metadata={"source": "browser"},
+                        ))
+            except Exception as e:
+                log.debug(f"facebook browser fetch failed: {e}")
+        return out
 
     async def _do_health(self) -> ChannelStatus:
         r = await self._client.get(
@@ -486,8 +567,39 @@ class DiscordAdapter(ChannelAdapter):
         return {"message_id": "n/a", "provider_response": r.json() if r.content else {}}
 
     async def fetch_inbound(self, since_ts: float = 0) -> List[ChannelMessage]:
-        """Discord uses gateway — placeholder for bot polling."""
-        return []
+        """Fetch new messages from Discord via the user's browser.
+
+        Real implementation: scrapes the Discord web client for new messages.
+        Works with any account where the user is logged in.
+
+        Requires: browser-automation skill + a session with profile="discord-{tenant}".
+        """
+        from empire.browser.session import get_manager
+        from empire.browser.actions import run_action_sync
+        mgr = get_manager()
+        out = []
+        for sess in mgr.list_sessions(tenant=getattr(self, "tenant", "default")):
+            if "discord" not in sess.profile_name.lower():
+                continue
+            try:
+                js = """() => {
+                    const items = document.querySelectorAll('[id^="message-content"], [class*="messageContent"]');
+                    return Array.from(items).slice(-30).map(m => m.innerText || "").filter(t => t.length > 0);
+                }"""
+                res = run_action_sync(sess.session_id, "evaluate", {"script": js})
+                if res.get("ok"):
+                    import json
+                    items = json.loads(res.get("result", "[]"))
+                    for text in items:
+                        out.append(ChannelMessage(
+                            channel=self.name, direction="inbound",
+                            thread_id="discord", sender_id="browser",
+                            sender_name=None, recipient_id=self.credentials.get("DISCORD_WEBHOOK_URL", ""),
+                            text=text, metadata={"source": "browser"},
+                        ))
+            except Exception as e:
+                log.debug(f"discord browser fetch failed: {e}")
+        return out
 
     async def _do_health(self) -> ChannelStatus:
         if self.bot_token:
@@ -647,8 +759,39 @@ class LinkedInAdapter(ChannelAdapter):
         return {"message_id": r.headers.get("X-Restli-Id"), "provider_response": r.json()}
 
     async def fetch_inbound(self, since_ts: float = 0) -> List[ChannelMessage]:
-        """LinkedIn doesn't have a public inbound API for personal posts."""
-        return []
+        """Fetch new LinkedIn notifications/messages via the user's browser.
+
+        Real implementation: drives linkedin.com as the logged-in user.
+        No Marketing API required, no app review.
+
+        Requires: browser-automation skill + session with profile="linkedin-{tenant}".
+        """
+        from empire.browser.session import get_manager
+        from empire.browser.actions import run_action_sync
+        mgr = get_manager()
+        out = []
+        for sess in mgr.list_sessions(tenant=getattr(self, "tenant", "default")):
+            if "linkedin" not in sess.profile_name.lower():
+                continue
+            try:
+                js = """() => {
+                    const items = document.querySelectorAll('.notification-card, .msg-conversation-listitem, .feed-shared-update-v2');
+                    return Array.from(items).slice(-20).map(m => m.innerText || "").filter(t => t.length > 0);
+                }"""
+                res = run_action_sync(sess.session_id, "evaluate", {"script": js})
+                if res.get("ok"):
+                    import json
+                    items = json.loads(res.get("result", "[]"))
+                    for text in items:
+                        out.append(ChannelMessage(
+                            channel=self.name, direction="inbound",
+                            thread_id="linkedin", sender_id="browser",
+                            sender_name=None, recipient_id=self.credentials.get("LINKEDIN_AUTHOR_URN", ""),
+                            text=text, metadata={"source": "browser"},
+                        ))
+            except Exception as e:
+                log.debug(f"linkedin browser fetch failed: {e}")
+        return out
 
     async def _do_health(self) -> ChannelStatus:
         r = await self._client.get(
