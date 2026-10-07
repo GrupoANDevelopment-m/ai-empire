@@ -84,3 +84,4 @@ empire_data/
 empire_registry.yaml
 prod.tfvars
 *.tfvars
+env.d/

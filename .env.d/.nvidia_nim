@@ -1,0 +1,3 @@
+NVIDIA_NIM_API_KEY=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
+NVIDIA_NIM_BASE_URL=https://integrate.api.nvidia.com/v1
+NVIDIA_NIM_MODEL=nvidia/nemotron-3-ultra-550b-a55b

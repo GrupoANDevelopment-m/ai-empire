@@ -36,6 +36,12 @@ class LLMClient:
         self.openai_key = os.getenv("OPENAI_API_KEY", "")
         self.litellm_url = os.getenv("LITELLM_URL", "http://localhost:4000").rstrip("/")
         self.openai_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com").rstrip("/")
+        # NVIDIA NIM (integrate.api.nvidia.com) — free, OpenAI-compatible, no credit card
+        self.nvidia_nim_key = os.getenv("NVIDIA_NIM_API_KEY", "")
+        self.nvidia_nim_url = os.getenv("NVIDIA_NIM_BASE_URL",
+                                        "https://integrate.api.nvidia.com/v1").rstrip("/")
+        self.nvidia_nim_model = os.getenv("NVIDIA_NIM_MODEL",
+                                          "nvidia/nemotron-3-ultra-550b-a55b")
         self._backend: str | None = None
         self._available = False
         self._detected_model: str | None = None
@@ -84,7 +90,26 @@ class LLMClient:
         except Exception:
             pass
 
-        # 3. OpenAI direct
+        # 3. NVIDIA NIM (https://integrate.api.nvidia.com/v1) — free tier
+        # Best default for self-hosted/AI Empire since it doesn't need a credit card
+        if self.nvidia_nim_key:
+            try:
+                async with httpx.AsyncClient(timeout=3) as client:
+                    r = await client.get(
+                        f"{self.nvidia_nim_url}/models",
+                        headers={"Authorization": f"Bearer {self.nvidia_nim_key}"},
+                    )
+                    if r.status_code == 200:
+                        self._backend = "nvidia_nim"
+                        self._detected_model = self.nvidia_nim_model
+                        self._base_url = self.nvidia_nim_url
+                        self._available = True
+                        return {"backend": "nvidia_nim", "model": self.nvidia_nim_model,
+                                "base_url": self.nvidia_nim_url, "healthy": True}
+            except Exception as e:
+                log.debug(f"NVIDIA NIM probe failed: {e}")
+
+        # 4. OpenAI direct
         if self.openai_key:
             self._backend = "openai"
             self._available = True
@@ -120,7 +145,7 @@ class LLMClient:
         """
         backend = (await self.detect())["backend"]
 
-        if backend in ("ollama", "litellm", "openai"):
+        if backend in ("ollama", "litellm", "openai", "nvidia_nim"):
             return await self._openai_chat(
                 backend, messages, tools, temperature, max_tokens, stream
             )
@@ -141,6 +166,10 @@ class LLMClient:
             url = f"{self.litellm_url}/v1/chat/completions"
             model = self._detected_model or os.getenv("LITELLM_MODEL", "smart")
             headers = {"Authorization": f"Bearer {os.getenv('LITELLM_MASTER_KEY', 'sk-empire-change-me')}"}
+        elif backend == "nvidia_nim":
+            url = f"{self.nvidia_nim_url}/chat/completions"
+            model = self._detected_model or self.nvidia_nim_model
+            headers = {"Authorization": f"Bearer {self.nvidia_nim_key}"}
         else:  # openai
             url = f"{self.openai_url}/v1/chat/completions"
             model = self._detected_model or "gpt-4o-mini"

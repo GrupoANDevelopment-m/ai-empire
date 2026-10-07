@@ -40,3 +40,4 @@ structlog>=24.0
 
 # Config
 pyyaml>=6.0
+openai>=1.40
