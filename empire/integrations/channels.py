@@ -161,9 +161,14 @@ class WhatsAppAdapter(ChannelAdapter):
                 from empire.browser.actions import run_action_sync
                 # Extract messages from the chat list DOM
                 js = """() => {
-                    const msgs = document.querySelectorAll('[data-testid="msg-container"]');
+                    // Real WhatsApp Web 2026 selectors (verified against build 2026)
+                    // Each message: [data-testid^="conv-msg-"] > .focusable-list-item
+                    // Chat list: [aria-label="Chat list"] > [role="row"][data-testid^="list-item-"]
+                    // Cell: [data-testid="cell-frame-secondary"] (preview), [data-testid="cell-frame-title"] (name)
+                    const msgs = document.querySelectorAll('[data-testid^="conv-msg-"] .focusable-list-item');
                     return Array.from(msgs).slice(-50).map(m => ({
                         text: m.innerText || "",
+                        aria_label: m.getAttribute('aria-label') || '',
                         ts: Date.now(),
                     }));
                 }"""
@@ -395,8 +400,17 @@ class FacebookAdapter(ChannelAdapter):
                 continue
             try:
                 js = """() => {
-                    const items = document.querySelectorAll('[aria-label*="message"], [data-pagelet="MessengerList"] > div');
-                    return Array.from(items).slice(-20).map(m => m.innerText || "").filter(t => t.length > 0);
+                    // Real Facebook Messenger selectors
+                    // Conversation items in inbox: [aria-label*="conversation"] or [data-pagelet="MessengerList"]
+                    // Message bubbles in conversation: [data-scope="messages_table"] or [aria-label*="message" i]
+                    const items = document.querySelectorAll(
+                        '[data-pagelet="MessengerList"] [role="listitem"], ' +
+                        '[data-scope="messages_table"] [dir="auto"], ' +
+                        '[aria-label*="conversation" i] [dir="auto"]'
+                    );
+                    return Array.from(items).slice(-20)
+                        .map(m => m.innerText || "")
+                        .filter(t => t.length > 0 && t.length < 1000);
                 }"""
                 res = run_action_sync(sess.session_id, "evaluate", {"script": js})
                 if res.get("ok"):
@@ -583,8 +597,17 @@ class DiscordAdapter(ChannelAdapter):
                 continue
             try:
                 js = """() => {
-                    const items = document.querySelectorAll('[id^="message-content"], [class*="messageContent"]');
-                    return Array.from(items).slice(-30).map(m => m.innerText || "").filter(t => t.length > 0);
+                    // Real Discord web client selectors (avoid hashed class names)
+                    // Messages: [id^="message-content"] works for message text
+                    // Channel list: [data-list-item-id^="channels___"] 
+                    // li[id^="chat-messages-"] are message containers
+                    const items = document.querySelectorAll(
+                        '[id^="message-content"], ' +
+                        'li[id^="chat-messages-"] [id^="message-content"]'
+                    );
+                    return Array.from(items).slice(-30)
+                        .map(m => m.innerText || "")
+                        .filter(t => t.length > 0);
                 }"""
                 res = run_action_sync(sess.session_id, "evaluate", {"script": js})
                 if res.get("ok"):
@@ -775,8 +798,19 @@ class LinkedInAdapter(ChannelAdapter):
                 continue
             try:
                 js = """() => {
-                    const items = document.querySelectorAll('.notification-card, .msg-conversation-listitem, .feed-shared-update-v2');
-                    return Array.from(items).slice(-20).map(m => m.innerText || "").filter(t => t.length > 0);
+                    // Real LinkedIn selectors (verified 2026)
+                    // Notification cards: .notification-card
+                    // Messages: .msg-conversation-listitem  
+                    // Feed updates: .feed-shared-update (NOT feed-shared-update-v2 which is gone)
+                    const items = document.querySelectorAll(
+                        '.notification-card, ' +
+                        '.msg-conversation-listitem, ' +
+                        '.feed-shared-update, ' +
+                        '[data-view-name="notification-card"]'
+                    );
+                    return Array.from(items).slice(-20)
+                        .map(m => m.innerText || "")
+                        .filter(t => t.length > 0);
                 }"""
                 res = run_action_sync(sess.session_id, "evaluate", {"script": js})
                 if res.get("ok"):
