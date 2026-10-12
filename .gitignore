@@ -90,3 +90,17 @@ env.d/
 **/env.d/
 /env.d/
 .env.d
+
+# Binary assets (not source code) — these were committed by accident
+web/premium/*.png
+web/premium/*.jpg
+web/premium/*.jpeg
+web/premium/*.gif
+web/premium/*.webp
+web/premium/*.svg
+web/premium/*.mp4
+web/premium/*.webm
+docs/screenshots/
+data/cache/
+*.bin
+*.wasm
