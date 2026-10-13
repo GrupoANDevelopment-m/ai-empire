@@ -1,0 +1,22 @@
+toc:
+  - file: index.md
+  - file: getting-started.md
+  - file: installation.md
+  - file: connecting.md
+  - file: configuration.md
+  - file: querying.md
+  - file: esql-query-builder.md
+  - file: async.md
+  - file: integrations.md
+    children:
+      - file: opentelemetry.md
+      - file: esql-pandas.md
+  - file: examples.md
+  - file: elasticsearch-dsl.md
+    children:
+      - file: dsl_configuration.md
+      - file: dsl_tutorials.md
+      - file: dsl_how_to_guides.md
+      - file: dsl_examples.md
+      - file: dsl_migrating.md
+  - file: client-helpers.md

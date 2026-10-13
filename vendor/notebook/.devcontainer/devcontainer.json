@@ -1,0 +1,17 @@
+{
+  "name": "Jupyter Notebook",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "features": {
+    "ghcr.io/devcontainers/features/node:2": {
+      "version": "22"
+    }
+  },
+  "forwardPorts": [8888],
+  "customizations": {
+    "vscode": {
+      "settings": {},
+      "extensions": ["ms-python.python", "charliermarsh.ruff", "GitHub.copilot"]
+    }
+  },
+  "postCreateCommand": "python -m pip install -e \".[dev,docs,test]\" && jlpm && jlpm build && jlpm develop && pre-commit install -f"
+}

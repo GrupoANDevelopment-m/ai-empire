@@ -1,0 +1,226 @@
+---
+title: Pydantic Support
+description: Pyrefly support for Pydantic.
+---
+
+{/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */}
+
+# Pydantic Support
+
+Pyrefly includes **built-in support** for [Pydantic](https://pydantic.dev/), a popular Python library for data validation and parsing. This feature provides static type checking and IDE integration for Pydantic models.
+
+> **Note:** Pyrefly's Pydantic support continues to evolve based on feedback and development. Please note that we support Pydantic v2 and above, which means that deprecated Pydantic v1 features are not included.
+
+### Feedback
+
+We welcome your feedback and suggestions. Please share your thoughts and ideas [here](https://github.com/facebook/pyrefly/issues/1078).
+
+---
+
+## What is Pydantic?
+
+Pydantic is a Python library designed for data validation and parsing using Python type annotations. While it shares similarities with dataclasses in creating structured data containers, Pydantic additionally provides extensive runtime data validation.
+
+---
+
+## How Pyrefly Supports Pydantic
+
+- Understands Pydantic constructs like `BaseModel`, `Field`, `ConfigDict`, and model-level config options.
+- Recognizes `pydantic_settings.BaseSettings` for environment-driven configuration.
+- Supports `@pydantic.dataclasses.dataclass`.
+- Performs static analysis that mirrors Pydantic's runtime validation logic, minimizing false positives in your IDE.
+- Provides immediate feedback (e.g. red squiggles or type errors) when the code would fail under Pydantic's actual behavior.
+- Does **not** require a plugin or manual config — support is builtin and automatic.
+
+---
+
+## Validation Modes
+
+Pydantic models can use two validation modes:
+
+- **Lax (Default)**: Values are automatically coerced when possible. For example, a string like `"123"` can be coerced to an integer.
+- **Strict**: Coercion is disabled, and only exactly matching types are accepted.
+
+Pyrefly reads your model config to determine the validation mode, so it can strike a balance between providing useful typing and IDE support while maintaining Pydantic's flexibility.
+
+### How Lax Mode Works in Pyrefly
+
+In lax mode (the default), Pyrefly uses **named union types** to represent the acceptable input types for each field. These named unions keep type signatures concise and readable while closely reflecting Pydantic's runtime coercion behavior.
+
+For example, when you define a field with type `int` in lax mode, Pyrefly represents it as `LaxInt`, which is equivalent to `int | bool | float | str | bytes | Decimal` (based on [Pydantic's conversion table](https://docs.pydantic.dev/latest/concepts/conversion_table/)):
+
+```python
+from pydantic import BaseModel
+from typing import reveal_type
+from decimal import Decimal
+
+class Model(BaseModel):
+    x: int = 0
+
+reveal_type(Model.__init__)  # revealed type is (self: Model, *, x: LaxInt = ..., **Unknown) -> None
+
+# int field accepts: int, bool, float, str, bytes, Decimal
+Model(x=1)
+Model(x=True)
+Model(x=1.0)
+Model(x='123')
+Model(x=b'123')
+Model(x=Decimal('123'))
+```
+
+> **Note:** Pyrefly applies named unions (like `LaxInt`) to atomic types and recursively to nested types. Container types are converted to more general types to handle variance: for example, `list[int]` becomes `Iterable[LaxInt]`. When you use union types (e.g., `int | bool`), each member is expanded individually and then flattened into a regular union.
+
+For a complete reference of all type conversions in lax mode, see the [Lax Mode Type Conversions](../pydantic-lax-conversions) page.
+
+---
+
+## Comparison to Existing Tools
+
+[Mypy’s Pydantic plugin](https://docs.pydantic.dev/1.10/mypy_plugin/) has five configuration options to control how strict the checking is — for example, whether coercion is allowed or extra fields are permitted.
+**Pyrefly works differently**. It doesn't rely on external config. Instead, it inspects your code directly — things like `strict=True` or `extra='forbid'` and strikes a balance between Pydantic's flexibility and Pyrefly's type checking.
+
+---
+
+## How to Use
+
+You don’t need to enable or configure anything to use Pyrefly’s Pydantic support.
+
+Just:
+
+1. Install `pydantic` (preferably v2).
+1. Install `pyrefly` (version 0.33.0 or later).
+1. Write your Pydantic models as usual.
+1. Run Pyrefly on your code.
+
+Pyrefly will recognize Pydantic constructs like `BaseModel`, `Field`, and `model_config`, and provide appropriate type checking automatically. You can follow [this link](https://github.com/migeed-z/pyrefly-pydantic-demo) to try it out on some small examples.
+
+---
+## Some Supported Features with Examples
+
+The following examples showcase which Pydantic features are currently supported by Pyrefly. Pyrefly does not cover all Pydantic features, but these features should provide good coverage of the most common Pydantic use cases. You can request additional Pydantic features to be supported by opening a GitHub issue.
+
+
+### Immutable fields with ConfigDict
+
+```python
+from pydantic import BaseModel, ConfigDict
+
+# Marking a model as frozen (immutable)
+class Model(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    x: int = 42
+m = Model()
+m.x = 10  # Error: Cannot set field `x` because the model is frozen
+```
+
+
+### Strict vs Non-Strict Field Validation
+
+```python
+from pydantic import BaseModel, Field
+
+# Lax mode (default): runtime coercion allowed
+class User(BaseModel):
+    name: str
+    age: int
+
+# This passes at runtime and in Pyrefly because age accepts strings in lax mode
+y = User(name="Alice", age="30")
+
+# Strict mode: enforce exact types, no coercion
+class User2(BaseModel):
+    name: str
+    age: int = Field(strict=True)
+
+# This triggers type errors in Pyrefly and red squiggles in the IDE,
+# and will also fail at runtime due to type mismatch.
+z = User2(name="Alice", age="30")  # Error: age expects int, not str
+```
+
+### Handling Extra Fields in Pydantic Models
+
+By default, Pydantic models allow extra fields (fields not defined in the model) to be passed during initialization. This behavior is consistent with Pyrefly’s support, which follows the default `extra='allow'` behavior.
+
+
+```python
+from pydantic import BaseModel
+
+# Extra fields allowed by default
+class ModelAllow(BaseModel):
+    x: int
+
+# This works fine: extra field `y` is allowed and ignored
+ModelAllow(x=1, y=2)
+
+# Explicitly forbid extra fields by setting `extra='forbid'`
+class ModelForbid(BaseModel, extra="forbid"):
+    x: int
+
+# This will raise a type error because of unexpected field `y`, which is consistent with runtime behavior.
+ModelForbid(x=1, y=2)
+```
+
+### Handling field constraints
+
+Pyrefly provides limited support for range constraints on fields.
+```python
+from pydantic import BaseModel, Field
+
+class Model(BaseModel):
+    x: int = Field(gt=0, lt=10)
+
+Model(x=5)   # OK
+Model(x=0)   # Error: Argument value `Literal[0]` violates Pydantic `gt` constraint for field `x`
+Model(x=15)  # Error: Argument value `Literal[15]` violates Pydantic `lt` constraint for field `x`
+```
+
+### Root Models
+
+```python
+from pydantic import RootModel, StrictInt
+
+class IntRootModel(RootModel[int]):
+   pass
+
+class StrictIntRootModel(RootModel[StrictInt]):
+   pass
+
+m1 = IntRootModel(123)  # OK
+m2 = IntRootModel("123") # OK - lax mode allows string-to-int coercion
+m3 = StrictIntRootModel("123")  # Error: StrictInt doesn't allow coercion
+```
+
+### Alias validation
+
+```python
+from pydantic import BaseModel, Field
+
+class Model(BaseModel, validate_by_name=True, validate_by_alias=True):
+    x: int = Field(alias='y')
+
+# both `x` and `y` are valid aliases
+Model(x=0)
+Model(y=0)
+```
+
+### Alias Generators
+
+Pyrefly recognizes `to_camel`, `to_pascal`, and `to_snake` from `pydantic.alias_generators` when `alias_generator` is set on `ConfigDict`. Constructor calls accept the generated alias.
+
+```python
+from pydantic import BaseModel, ConfigDict
+from pydantic.alias_generators import to_camel
+
+class Voice(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel)
+    first_name: str
+
+Voice(firstName="Alice")
+```
+
+Pyrefly does not recognize a custom callable or an `AliasGenerator` instance. For those configurations, Pyrefly type-checks the original field names.

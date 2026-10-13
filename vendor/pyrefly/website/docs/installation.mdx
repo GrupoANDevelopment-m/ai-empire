@@ -1,0 +1,281 @@
+---
+title: Installation
+description: How to install Pyrefly
+---
+
+{/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */}
+
+Pyrefly is available on [PyPI](https://pypi.org/project/pyrefly/) with a new minor release intended every ~2 months.
+
+## Install
+
+You can use `uv`, `poetry`, `pip`, `pixi` or `conda` to install Pyrefly. The following commands show you how to install Pyrefly and run 2 basic commands: `init` and `check`.
+
+* `pyrefly init` will update your `pyproject.toml` file (or create a `pyrefly.toml` file) in your project directory, including some basic configuration. It will also attempt to [migrate](../migrating-to-pyrefly) your existing type checker configuration.
+* `pyrefly check --summarize-errors` will run the Pyrefly type checker on your project, providing a list of type errors and a summary of error types. The `--summarize-errors` flag is optional, remove it if you don't want summary stats.
+* `pyrefly suppress` will mark all existing errors as ignored, allowing you to start with a clean check. (You can also use `pyrefly check --suppress-errors`.)
+
+
+Simply `cd` into your project directory and run:
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+<Tabs>
+  <TabItem value="pip" label="Pip" default>
+    ```
+    pip install pyrefly
+    pyrefly init
+    pyrefly check --summarize-errors
+    ```
+  </TabItem>
+  <TabItem value="conda" label="Conda">
+    ```
+    conda install -c conda-forge pyrefly
+    pyrefly init
+    pyrefly check --summarize-errors
+    ```
+  </TabItem>
+  <TabItem value="uv" label="uv">
+    ```
+    uvx pyrefly init
+    uvx pyrefly check --summarize-errors
+    ```
+  </TabItem>
+  <TabItem value="poetry" label="Poetry">
+    ```
+    poetry add --group dev pyrefly
+    poetry run pyrefly init
+    poetry run pyrefly check --summarize-errors
+    ```
+  </TabItem>
+  <TabItem value="pixi" label="Pixi">
+    ```
+    pixi add pyrefly
+    pixi run pyrefly init
+    pixi run pyrefly check --summarize-errors
+    ```
+  </TabItem>
+</Tabs>
+
+For tab completion setup, see [Shell completion](../shell-completion).
+
+## Configure
+
+Pyrefly with no configuration [automatically finds nearby legacy type checking configurations](../configuration/#unconfigured-projects). If we cannot find one, or migration fails, we use the **basic preset**, which shows only high-confidence errors that are very likely to indicate real bugs or crashes (like syntax errors and missing imports) and silences other diagnostics.
+
+To unlock full type checking and pin your configuration, run `pyrefly init`. This writes a `pyrefly.toml` (or updates `pyproject.toml`) and explicitly migrates any existing mypy/pyright settings. All [configuration options are documented here](../configuration). Common knobs to tune include:
+
+- `check-unannotated-defs`: type-check the bodies of unannotated functions.
+- `errors`: per-error-kind severity overrides.
+- `infer-return-types`: when to infer return types for unannotated functions.
+- `project-excludes` and `pyrefly suppress`: incremental rollout on existing
+  codebases.
+
+## Basic usage
+
+Run Pyrefly from your project directory to type-check the whole project:
+
+```sh
+pyrefly check
+```
+
+You can also check specific files or directories:
+
+```sh
+pyrefly check src/ tests/ path/to/file.py
+```
+
+For feedback while you edit, install a [Pyrefly IDE extension](../IDE). It provides diagnostics, hover information, inlay hints, and navigation directly in the editor. For more details, run `pyrefly help`.
+
+## Configure
+
+You can set up a basic configuration file to type-check your project. You can add configuration options to a `pyproject.toml` file or create a `pyrefly.toml` file in your project directory. All [configuration options are documented here](../configuration).
+
+```
+[tool.pyrefly]
+search_path = [
+    "example_directory/..."
+]
+```
+
+Then, run `pyrefly check` again, and the tool will use your configuration options.
+
+The tool may return a list of type errors; this is perfectly normal. You have a few options at this point:
+
+1. Use `# pyrefly: ignore` comments to silence the errors. This will get your project to a clean type-checking state, and you can reduce the number of errors as you go. We've included a command that can do this for you:
+
+```
+pyrefly suppress
+```
+
+2. Use extra configuration options to silence specific categories of errors or exclude files with more errors than average.
+
+----
+
+## Upgrading Pyrefly
+
+Upgrading the version of Pyrefly you're using or a third-party library you depend on can reveal new type errors in your code. Fixing them all at once is often unrealistic. We've written scripts to help you temporarily silence them.
+
+```
+# Step 1
+pyrefly suppress
+```
+
+```
+# Step 2
+<run your formatter of choice>
+```
+
+```
+# Step 3
+pyrefly suppress --remove-unused
+```
+
+Repeat these steps until you achieve a clean formatting run and a clean type check.
+
+This will add `# pyrefly: ignore` comments to your code, enabling you to silence errors and return to fix them later. This can make the process of upgrading a large codebase much more manageable.
+
+----
+
+## Add Pyrefly to CI
+
+After your project passes type checks without errors, you can prevent new bugs from being introduced. Enforce this through CI (Continuous Integration) to prevent other maintainers from merging code with errors.
+
+### Using the GitHub Action (Recommended)
+
+The simplest way to add Pyrefly to GitHub Actions is with the official composite action. It handles Python setup, installation, and running the type checker with inline PR annotations enabled by default.
+
+```yaml
+- uses: facebook/pyrefly@main
+```
+
+Here is a complete workflow example:
+
+```yaml
+name: Pyrefly Type Check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: facebook/pyrefly@main
+```
+
+You can pin a specific Pyrefly version, set the Python version, or pass extra arguments:
+
+```yaml
+      - uses: facebook/pyrefly@main
+        with:
+          version: "0.60.0"
+          python-version: "3.12"
+          args: "--summarize-errors"
+```
+
+The action accepts the following inputs:
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `version` | latest | Pyrefly version to install (e.g., `0.60.0`) |
+| `args` | | Extra arguments passed to `pyrefly check` |
+| `python-version` | `3.x` | Python version for `actions/setup-python` |
+| `working-directory` | `.` | Directory to run the type check in |
+
+Type errors appear as inline annotations on pull requests automatically via `--output-format=github`.
+
+### Manual Setup
+
+If you need more control or use a non-GitHub CI system (GitLab CI, Jenkins, etc.), you can set up Pyrefly manually.
+
+Save your workflow in the following path within your repository:
+
+```
+.github/workflows/typecheck.yml
+```
+
+GitHub automatically detects `.yml` files within `.github/workflows/` and sets up the defined workflows.
+
+```yaml
+name: Pyrefly Type Check
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # Allows manual triggering from the GitHub UI
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+
+      # Install Python dependencies and create environment
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          # Install your dependencies; adjust the following lines as needed
+          pip install -r requirements-dev.txt
+
+      - name: Install Pyrefly
+        run: pip install pyrefly
+
+      - name: Run Pyrefly Type Checker
+        run: pyrefly check --output-format=github
+```
+
+### Inline PR Annotations
+
+Pyrefly can emit errors as [GitHub Actions workflow commands](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions) so that type errors appear inline when reviewing pull requests.
+
+To enable this, pass `--output-format=github`:
+
+```
+pyrefly check --output-format=github
+```
+
+The GitHub Action enables this by default. For manual setups, add the flag to your workflow step.
+
+### A few notes about this setup:
+
+- Building your environment and installing dependencies will enhance type safety by checking the types of imports. *This is not required, but encouraged!*
+- Simply drop in `pyrefly check` to existing workflows that build and test your environment.
+
+```
+      - name: Run Pyrefly Type Checker
+        run: pyrefly check
+```
+
+- Your `pyrefly.toml` or Pyrefly configs in your `pyproject.toml` will be automatically detected. Learn how to [configure Pyrefly here](../configuration).
+
+----
+
+## Pre-commit
+
+Pyrefly provides a [pre-commit hook](https://pre-commit.com/) so you can automatically type check files before they are committed.
+
+We maintain a dedicated repository for this integration here: [facebook/pyrefly-pre-commit](https://github.com/facebook/pyrefly-pre-commit)
+
+That repository contains:
+
+- A pre-commit hook
+- Installation instructions
+- Example configuration snippets for your project and CI
+
+To get started, follow the setup steps in the repo’s [README](https://github.com/facebook/pyrefly-pre-commit#readme).

@@ -1,0 +1,91 @@
+// Licensed to the Software Freedom Conservancy (SFC) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The SFC licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.openqa.selenium.bidi;
+
+import static java.util.Collections.unmodifiableMap;
+
+import java.lang.reflect.Type;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.Function;
+import org.jetbrains.annotations.ApiStatus;
+import org.jspecify.annotations.Nullable;
+import org.openqa.selenium.Beta;
+import org.openqa.selenium.internal.Require;
+
+@Beta
+@ApiStatus.Internal
+public class Command<X> {
+
+  private final String method;
+  private final Map<String, @Nullable Object> params;
+  private final Function<@Nullable Object, X> mapper;
+  private final boolean sendsResponse;
+
+  public Command(String method, Map<String, @Nullable Object> params) {
+    this(method, params, Object.class);
+  }
+
+  // Decodes through ConverterFunctions.JSON, not a fresh Json(): a command result and an event
+  // payload are both inbound BiDi wire data and must be held to the same strictness — a quoted
+  // network.ResponseData.status ("200" instead of 200) or a quoted network.FetchTimingInfo.
+  // timeOrigin ("1.5" instead of 1.5) must be rejected either way, not decoded more leniently just
+  // because it arrived as a command result.
+  public Command(String method, Map<String, @Nullable Object> params, Type typeOfX) {
+    this(
+        method,
+        params,
+        result ->
+            Require.nonNull(
+                "Command result",
+                ConverterFunctions.JSON.convert(
+                    result, Require.nonNull("Type to convert to", typeOfX))));
+  }
+
+  public Command(
+      String method, Map<String, @Nullable Object> params, Function<@Nullable Object, X> mapper) {
+    this(method, params, mapper, true);
+  }
+
+  public Command(
+      String method,
+      Map<String, @Nullable Object> params,
+      Function<@Nullable Object, X> mapper,
+      boolean sendsResponse) {
+    this.method = Require.nonNull("Method name", method);
+    this.params = unmodifiableMap(new HashMap<>(Require.nonNull("Command parameters", params)));
+    this.mapper = Require.nonNull("Mapper for result", mapper);
+    this.sendsResponse = sendsResponse;
+  }
+
+  public String getMethod() {
+    return method;
+  }
+
+  public Map<String, @Nullable Object> getParams() {
+    return params;
+  }
+
+  public boolean getSendsResponse() {
+    return sendsResponse;
+  }
+
+  Function<@Nullable Object, X> getMapper() {
+    return mapper;
+  }
+}

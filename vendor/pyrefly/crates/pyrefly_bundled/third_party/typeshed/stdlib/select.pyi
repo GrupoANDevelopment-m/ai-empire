@@ -1,0 +1,209 @@
+"""
+This module supports asynchronous I/O on multiple file descriptors.
+
+*** IMPORTANT NOTICE ***
+On Windows, only sockets are supported; on Unix, all file descriptors.
+"""
+
+import sys
+from _typeshed import FileDescriptorLike
+from collections.abc import Iterable
+from types import TracebackType
+from typing import Any, ClassVar, Final, TypeVar, final, overload
+from typing_extensions import Never, Self, deprecated
+
+if sys.platform != "win32":
+    PIPE_BUF: Final[int]
+    POLLERR: Final[int]
+    POLLHUP: Final[int]
+    POLLIN: Final[int]
+    if sys.platform == "linux":
+        POLLMSG: Final[int]
+    POLLNVAL: Final[int]
+    POLLOUT: Final[int]
+    POLLPRI: Final[int]
+    POLLRDBAND: Final[int]
+    if sys.platform == "linux":
+        POLLRDHUP: Final[int]
+    POLLRDNORM: Final[int]
+    POLLWRBAND: Final[int]
+    POLLWRNORM: Final[int]
+
+    # This is actually a function that returns an instance of a class.
+    # The class is not accessible directly, and also calls itself select.poll.
+    @final
+    class poll:
+        """
+        Returns a polling object.
+
+        This object supports registering and unregistering file descriptors, and then
+        polling them for I/O events.
+        """
+        # default value is select.POLLIN | select.POLLPRI | select.POLLOUT
+        def register(self, fd: FileDescriptorLike, eventmask: int = 7, /) -> None: ...
+        def modify(self, fd: FileDescriptorLike, eventmask: int, /) -> None: ...
+        def unregister(self, fd: FileDescriptorLike, /) -> None: ...
+        def poll(self, timeout: float | None = None, /) -> list[tuple[int, int]]: ...
+
+_R = TypeVar("_R", default=Never, bound=FileDescriptorLike)
+_W = TypeVar("_W", default=Never, bound=FileDescriptorLike)
+_X = TypeVar("_X", default=Never, bound=FileDescriptorLike)
+
+def select(
+    rlist: Iterable[_R], wlist: Iterable[_W], xlist: Iterable[_X], timeout: float | None = None, /
+) -> tuple[list[_R], list[_W], list[_X]]:
+    """
+    Wait until one or more file descriptors are ready for some kind of I/O.
+
+    The first three arguments are iterables of file descriptors to be waited for:
+    rlist -- wait until ready for reading
+    wlist -- wait until ready for writing
+    xlist -- wait for an "exceptional condition"
+    If only one kind of condition is required, pass [] for the other lists.
+
+    A file descriptor is either a socket or file object, or a small integer
+    gotten from a fileno() method call on one of those.
+
+    The optional 4th argument specifies a timeout in seconds; it may be
+    a floating-point number to specify fractions of seconds.  If it is absent
+    or None, the call will never time out.
+
+    The return value is a tuple of three lists corresponding to the first three
+    arguments; each contains the subset of the corresponding file descriptors
+    that are ready.
+
+    *** IMPORTANT NOTICE ***
+    On Windows, only sockets are supported; on Unix, all file
+    descriptors can be used.
+    """
+    ...
+
+error = OSError
+
+if sys.platform != "linux" and sys.platform != "win32":
+    # BSD only
+    @final
+    class kevent:
+        data: Any
+        fflags: int
+        filter: int
+        flags: int
+        ident: int
+        udata: Any
+        def __init__(
+            self, ident: FileDescriptorLike, filter: int = ..., flags: int = ..., fflags: int = 0, data: Any = 0, udata: Any = 0
+        ) -> None: ...
+        __hash__: ClassVar[None]  # type: ignore[assignment]
+
+    # BSD only
+    @final
+    class kqueue:
+        closed: bool
+        def __init__(self) -> None: ...
+        def close(self) -> None: ...
+        def control(
+            self, changelist: Iterable[kevent] | None, maxevents: int, timeout: float | None = None, /
+        ) -> list[kevent]: ...
+        def fileno(self) -> int: ...
+        @classmethod
+        def fromfd(cls, fd: FileDescriptorLike, /) -> kqueue: ...
+
+    KQ_EV_ADD: Final[int]
+    KQ_EV_CLEAR: Final[int]
+    KQ_EV_DELETE: Final[int]
+    KQ_EV_DISABLE: Final[int]
+    KQ_EV_ENABLE: Final[int]
+    KQ_EV_EOF: Final[int]
+    KQ_EV_ERROR: Final[int]
+    KQ_EV_FLAG1: Final[int]
+    KQ_EV_ONESHOT: Final[int]
+    KQ_EV_SYSFLAGS: Final[int]
+    KQ_FILTER_AIO: Final[int]
+    if sys.platform != "darwin":
+        KQ_FILTER_NETDEV: Final[int]
+    KQ_FILTER_PROC: Final[int]
+    KQ_FILTER_READ: Final[int]
+    KQ_FILTER_SIGNAL: Final[int]
+    KQ_FILTER_TIMER: Final[int]
+    KQ_FILTER_VNODE: Final[int]
+    KQ_FILTER_WRITE: Final[int]
+    KQ_NOTE_ATTRIB: Final[int]
+    KQ_NOTE_CHILD: Final[int]
+    KQ_NOTE_DELETE: Final[int]
+    KQ_NOTE_EXEC: Final[int]
+    KQ_NOTE_EXIT: Final[int]
+    KQ_NOTE_EXTEND: Final[int]
+    KQ_NOTE_FORK: Final[int]
+    KQ_NOTE_LINK: Final[int]
+    if sys.platform != "darwin":
+        KQ_NOTE_LINKDOWN: Final[int]
+        KQ_NOTE_LINKINV: Final[int]
+        KQ_NOTE_LINKUP: Final[int]
+    KQ_NOTE_LOWAT: Final[int]
+    KQ_NOTE_PCTRLMASK: Final[int]
+    KQ_NOTE_PDATAMASK: Final[int]
+    KQ_NOTE_RENAME: Final[int]
+    KQ_NOTE_REVOKE: Final[int]
+    KQ_NOTE_TRACK: Final[int]
+    KQ_NOTE_TRACKERR: Final[int]
+    KQ_NOTE_WRITE: Final[int]
+
+if sys.platform == "linux":
+    @final
+    class epoll:
+        @overload
+        def __new__(self, sizehint: int = -1) -> Self: ...
+        @overload
+        @deprecated(
+            "The `flags` parameter is deprecated since Python 3.4. "
+            "Use `os.set_inheritable()` to make the file descriptor inheritable."
+        )
+        def __new__(self, sizehint: int = -1, flags: int = 0) -> Self: ...
+
+        def __enter__(self) -> Self: ...
+        def __exit__(
+            self,
+            exc_type: type[BaseException] | None = None,
+            exc_value: BaseException | None = None,
+            exc_tb: TracebackType | None = None,
+            /,
+        ) -> None: ...
+        def close(self) -> None: ...
+        closed: bool
+        def fileno(self) -> int: ...
+        def register(self, fd: FileDescriptorLike, eventmask: int = ...) -> None: ...
+        def modify(self, fd: FileDescriptorLike, eventmask: int) -> None: ...
+        def unregister(self, fd: FileDescriptorLike) -> None: ...
+        def poll(self, timeout: float | None = None, maxevents: int = -1) -> list[tuple[int, int]]: ...
+        @classmethod
+        def fromfd(cls, fd: FileDescriptorLike, /) -> epoll: ...
+
+    EPOLLERR: Final[int]
+    EPOLLEXCLUSIVE: Final[int]
+    EPOLLET: Final[int]
+    EPOLLHUP: Final[int]
+    EPOLLIN: Final[int]
+    EPOLLMSG: Final[int]
+    EPOLLONESHOT: Final[int]
+    EPOLLOUT: Final[int]
+    EPOLLPRI: Final[int]
+    EPOLLRDBAND: Final[int]
+    EPOLLRDHUP: Final[int]
+    EPOLLRDNORM: Final[int]
+    EPOLLWRBAND: Final[int]
+    EPOLLWRNORM: Final[int]
+    EPOLL_CLOEXEC: Final[int]
+    if sys.version_info >= (3, 14):
+        EPOLLWAKEUP: Final[int]
+
+if sys.platform != "linux" and sys.platform != "darwin" and sys.platform != "win32":
+    # Solaris only
+    @final
+    class devpoll:
+        def close(self) -> None: ...
+        closed: bool
+        def fileno(self) -> int: ...
+        def register(self, fd: FileDescriptorLike, eventmask: int = ...) -> None: ...
+        def modify(self, fd: FileDescriptorLike, eventmask: int = ...) -> None: ...
+        def unregister(self, fd: FileDescriptorLike) -> None: ...
+        def poll(self, timeout: float | None = None) -> list[tuple[int, int]]: ...

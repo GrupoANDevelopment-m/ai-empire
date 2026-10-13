@@ -1,0 +1,276 @@
+/*!
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+import "@testing-library/jest-dom/vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type * as OpenapiQueries from "openapi/queries";
+
+import { Wrapper } from "src/utils/Wrapper";
+
+import TriggerDAGForm from "./TriggerDAGForm";
+
+const dagParams = vi.hoisted(() => ({
+  paramsDict: {
+    message: {
+      description: "Message",
+      schema: {
+        title: "Message",
+        type: "string",
+      },
+      value: "Hello",
+    },
+  },
+}));
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    i18n: { language: "en" },
+    // eslint-disable-next-line id-length
+    t: (translationKey: string) => translationKey,
+  }),
+}));
+
+const useDagParamsMock = vi.hoisted(() => vi.fn());
+
+vi.mock("src/queries/useDagParams", () => ({
+  useDagParams: useDagParamsMock,
+}));
+
+const togglePauseMock = vi.hoisted(() => vi.fn());
+
+vi.mock("src/queries/useTogglePause", () => ({
+  useTogglePause: () => ({
+    mutate: togglePauseMock,
+  }),
+}));
+
+vi.mock("openapi/queries", async (importOriginal) => {
+  const actual = await importOriginal<typeof OpenapiQueries>();
+
+  return { ...actual, useDagRunServiceGetDagRuns: vi.fn(() => ({ data: undefined })) };
+});
+
+vi.mock("../DateTimeInput", () => ({
+  DateTimeInput: ({ value = "" }: { readonly value?: string }) => (
+    <input aria-label="Logical Date" readOnly value={value} />
+  ),
+}));
+
+vi.mock("../JsonEditor", () => ({
+  JsonEditor: ({
+    onBlur,
+    onChange,
+    value = "",
+  }: {
+    readonly onBlur?: () => void;
+    readonly onChange?: (value: string) => void;
+    readonly value?: string;
+  }) => (
+    <textarea
+      aria-label="Configuration JSON"
+      onBlur={onBlur}
+      onChange={(event) => onChange?.(event.target.value)}
+      value={value}
+    />
+  ),
+}));
+
+describe("TriggerDAGForm", () => {
+  beforeEach(() => {
+    useDagParamsMock.mockReturnValue(dagParams);
+    togglePauseMock.mockClear();
+  });
+
+  it.each([
+    { action: undefined, drainDag: false, unpauses: true },
+    { action: "pausedDag.drain", drainDag: true, unpauses: false },
+    { action: "pausedDag.keepPaused", drainDag: false, unpauses: false },
+  ])(
+    "submits a paused Dag with drainDag=$drainDag when choosing $action",
+    async ({ action, drainDag, unpauses }) => {
+      const onSubmitTrigger = vi.fn();
+
+      render(
+        <TriggerDAGForm
+          dagId="paused_dag"
+          error={undefined}
+          hasSchedule={false}
+          isPartitioned={false}
+          isPaused
+          isPending={false}
+          onSubmitTrigger={onSubmitTrigger}
+          open
+        />,
+        { wrapper: Wrapper },
+      );
+
+      if (action !== undefined) {
+        fireEvent.click(screen.getByText(action));
+        await waitFor(() => expect(screen.getByRole("radio", { name: action })).toBeChecked());
+      }
+      fireEvent.click(screen.getByTestId("trigger-dag-submit"));
+
+      await waitFor(() =>
+        expect(onSubmitTrigger).toHaveBeenCalledWith(expect.objectContaining({ drainDag })),
+      );
+      if (unpauses) {
+        expect(togglePauseMock).toHaveBeenCalledWith({
+          dagId: "paused_dag",
+          requestBody: { is_paused: false },
+        });
+      } else {
+        expect(togglePauseMock).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it("does not offer the paused Dag choices for an active Dag", () => {
+    render(
+      <TriggerDAGForm
+        dagId="active_dag"
+        error={undefined}
+        hasSchedule={false}
+        isPartitioned={false}
+        isPaused={false}
+        isPending={false}
+        onSubmitTrigger={vi.fn()}
+        open
+      />,
+      { wrapper: Wrapper },
+    );
+
+    expect(screen.queryByText("pausedDag.drain")).not.toBeInTheDocument();
+  });
+
+  it("propagates the selected run's conf to the JSON editor when the Dag has no declared params", async () => {
+    useDagParamsMock.mockReturnValue({ paramsDict: {} });
+
+    render(
+      <TriggerDAGForm
+        dagId="example_no_params"
+        error={undefined}
+        hasSchedule={false}
+        isPartitioned={false}
+        isPaused={false}
+        isPending={false}
+        onSubmitTrigger={vi.fn()}
+        open
+        prefillConfig={{
+          conf: { message: "from selected run" },
+          logicalDate: undefined,
+          runId: "manual__test",
+        }}
+      />,
+      { wrapper: Wrapper },
+    );
+
+    await waitFor(() => {
+      const configJson = screen.getByLabelText("Configuration JSON");
+
+      if (!(configJson instanceof HTMLTextAreaElement)) {
+        throw new TypeError("Expected Configuration JSON to render as a textarea");
+      }
+
+      expect(configJson.value).toContain('"from selected run"');
+    });
+  });
+
+  it("syncs the Configuration JSON after Run Parameters edits in prefilled re-trigger mode", async () => {
+    const { container } = render(
+      <TriggerDAGForm
+        dagId="example_params_trigger_ui"
+        error={undefined}
+        hasSchedule={false}
+        isPartitioned={false}
+        isPaused={false}
+        isPending={false}
+        onSubmitTrigger={vi.fn()}
+        open
+        prefillConfig={{
+          conf: {
+            message: "Original message",
+          },
+          logicalDate: undefined,
+          runId: "manual__test",
+        }}
+      />,
+      { wrapper: Wrapper },
+    );
+
+    await waitFor(() =>
+      expect(container.querySelector<HTMLInputElement>('input[name="element_message"]')).toBeInTheDocument(),
+    );
+    const messageField = container.querySelector<HTMLInputElement>('input[name="element_message"]');
+
+    if (messageField === null) {
+      throw new Error("Expected message input to be rendered");
+    }
+
+    fireEvent.change(messageField, { target: { value: "Updated message" } });
+
+    await waitFor(() => {
+      const configJson = screen.getByLabelText("Configuration JSON");
+
+      if (!(configJson instanceof HTMLTextAreaElement)) {
+        throw new TypeError("Expected Configuration JSON to render as a textarea");
+      }
+
+      expect(configJson.value).toContain('"Updated message"');
+    });
+  });
+
+  it("hides the partition key field for non-partitioned Dags", async () => {
+    render(
+      <TriggerDAGForm
+        dagId="example_non_partitioned_dag"
+        error={undefined}
+        hasSchedule={false}
+        isPartitioned={false}
+        isPaused={false}
+        isPending={false}
+        onSubmitTrigger={vi.fn()}
+        open
+      />,
+      { wrapper: Wrapper },
+    );
+
+    await waitFor(() => expect(screen.getByText("runId")).toBeInTheDocument());
+    expect(screen.queryByText("dagRun.partitionKey")).not.toBeInTheDocument();
+  });
+
+  it("shows the partition key field for partitioned Dags", async () => {
+    render(
+      <TriggerDAGForm
+        dagId="example_partitioned_dag"
+        error={undefined}
+        hasSchedule={false}
+        isPartitioned
+        isPaused={false}
+        isPending={false}
+        onSubmitTrigger={vi.fn()}
+        open
+      />,
+      { wrapper: Wrapper },
+    );
+
+    await waitFor(() => expect(screen.getByText("dagRun.partitionKey")).toBeInTheDocument());
+    expect(screen.getByText("components:triggerDag.partitionKeyHelp")).toBeInTheDocument();
+  });
+});

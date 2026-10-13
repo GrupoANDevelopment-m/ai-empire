@@ -1,0 +1,77 @@
+# EditorConfig helps developers define and maintain consistent
+# coding styles between different editors and IDEs
+# editorconfig.org
+
+[*]
+indent_style = space
+indent_size = 2
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+ij_continuation_indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.java]
+indent_style = space
+indent_size = 2
+continuation_indent_size = 4
+ij_continuation_indent_size = 4
+max_line_length = 100
+ij_java_class_count_to_use_import_on_demand = 999
+ij_java_names_count_to_use_import_on_demand = 999
+ij_java_layout_static_imports_separately = true
+ij_java_imports_layout = $*,|,*
+ij_java_if_brace_force = always
+ij_java_for_brace_force = always
+ij_java_while_brace_force = always
+ij_java_do_while_brace_force = always
+
+[*.py]
+indent_style = space
+indent_size = 4
+max_line_length = 120
+
+[*.rb]
+indent_style = space
+indent_size = 2
+max_line_length = 120
+
+[*.js]
+indent_style = space
+indent_size = 2
+
+[javascript/selenium-webdriver/**.js]
+max_line_length = 120
+ij_javascript_use_semicolon_after_statement = false
+ij_javascript_force_semicolon_style = true
+ij_javascript_use_double_quotes = false
+ij_javascript_force_quote_style = true
+
+[*.rs]
+indent_style = space
+indent_size = 4
+max_line_length = 100
+
+[*.html]
+indent_style = space
+indent_size = 2
+
+[*.cs]
+indent_style = space
+indent_size = 4
+
+[*.h]
+indent_style = space
+indent_size = 2
+
+[*.cpp]
+indent_style = space
+indent_size = 2
+charset = utf-8
+
+[{*.bazel,*.bzl,WORKSPACE}]
+indent_style = space
+indent_size = 4

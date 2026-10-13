@@ -1,0 +1,153 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "elasticsearch"
+description = "Python client for Elasticsearch"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [
+    { name = "Elastic Client Library Maintainers", email = "client-libs@elastic.co" },
+]
+maintainers = [
+    { name = "Elastic Client Library Maintainers", email = "client-libs@elastic.co" },
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+]
+keywords = [
+    "elasticsearch",
+    "elastic",
+    "kibana",
+    "mapping",
+    "REST",
+    "search",
+    "client",
+    "index",
+]
+dynamic = ["version"]
+dependencies = [
+    "elastic-transport>=9.4.1,<10",
+    "python-dateutil",
+    "typing-extensions",
+    "sniffio",
+    "anyio",
+]
+
+[project.optional-dependencies]
+async = ["aiohttp>=3,<4"]
+requests = ["requests>=2.4.0, !=2.32.2, <3.0.0"]
+orjson = ["orjson>=3"]
+pyarrow = ["pyarrow>=1"]
+# Maximal Marginal Relevance (MMR) for search results
+vectorstore_mmr = ["numpy>=1", "simsimd>=3"]
+dev = [
+    "requests>=2, <3",
+    "aiohttp",
+    "httpx",
+    "pytest",
+    "pytest-cov",
+    "pytest-mock",
+    "pytest-asyncio",
+    "coverage",
+    "jinja2",
+    "python-dateutil",
+    "unasync",
+    "pyyaml>=5.4",
+    "pydantic",
+    "isort",
+    "black",
+    "twine",
+    "build",
+    "nox",
+    "orjson",
+    "numpy",
+    "simsimd",
+    "pyarrow; python_version<'3.14'",
+    "pandas",
+    "mapbox-vector-tile",
+    "jinja2",
+    "tqdm",
+    "anyio[trio]",
+    "mypy",
+    "pyright",
+    "types-python-dateutil",
+    "types-tqdm",
+]
+docs = [
+    "sphinx",
+    "sphinx-rtd-theme>=2.0",
+    "sphinx-autodoc-typehints"
+]
+
+[project.urls]
+Documentation = "https://elasticsearch-py.readthedocs.io/"
+Homepage = "https://github.com/elastic/elasticsearch-py"
+"Issue Tracker" = "https://github.com/elastic/elasticsearch-py/issues"
+"Source Code" = "https://github.com/elastic/elasticsearch-py"
+
+[tool.hatch.version]
+path = "elasticsearch/_version.py"
+pattern = "__versionstr__ = \"(?P<version>[^']+?)\""
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/elasticsearch",
+    "/CHANGELOG.md",
+    "/CONTRIBUTING.md",
+    "/LICENSE",
+    "/NOTICE",
+    "/README.md",
+    "/setup.cfg",
+    "/docs/sphinx",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["elasticsearch"]
+
+[tool.pytest.ini_options]
+junit_family = "legacy"
+xfail_strict = true
+markers = [
+    "otel",
+    "sync: mark a test as performing I/O without asyncio.",
+]
+filterwarnings = [
+    "ignore:Legacy index templates are deprecated in favor of composable templates.:elasticsearch.exceptions.ElasticsearchWarning",
+    "ignore:datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version..*:DeprecationWarning",
+    "default:enable_cleanup_closed ignored.*:DeprecationWarning",
+]
+
+[tool.isort]
+profile = "black"
+
+[tool.coverage.report]
+exclude_lines = [
+    "raise NotImplementedError*",
+]
+
+[tool.mypy]
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "elasticsearch.dsl.document_base"
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = "elasticsearch.serializer"
+warn_unused_ignores = false

@@ -1,0 +1,14 @@
+.stdy.log
+_dev
+
+__pycache__
+
+dist
+
+.venv
+.idea
+
+.env
+.envrc
+codegen.log
+Brewfile.lock.json

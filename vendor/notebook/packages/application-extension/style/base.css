@@ -1,0 +1,45 @@
+/*-----------------------------------------------------------------------------
+| Copyright (c) Jupyter Development Team.
+|
+| Distributed under the terms of the Modified BSD License.
+|----------------------------------------------------------------------------*/
+
+.jp-NotebookSpacer {
+  flex-grow: 1;
+  flex-shrink: 1;
+}
+
+.jp-MainAreaWidget {
+  height: 100%;
+}
+
+.jp-Toolbar > .jp-Toolbar-item {
+  height: unset;
+}
+
+#jp-UserMenu {
+  flex: 0 0 auto;
+  display: flex;
+  text-align: center;
+  margin-top: 8px;
+}
+
+.jp-MimeDocument .jp-RenderedJSON {
+  background: var(--jp-layout-color0);
+}
+
+/* Hide the stub toolbar that appears above terminals and documents */
+
+.jp-MainAreaWidget > .jp-Toolbar-micro {
+  display: none;
+}
+
+#jp-NotebookLogo {
+  /* bring logo to the front so it is selectable by tab*/
+  z-index: 10;
+}
+
+/* Hide the notification status item */
+.jp-Notification-Status {
+  display: none;
+}

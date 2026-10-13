@@ -1,0 +1,212 @@
+from playwright_tests import AdminPlaywrightTestCase
+
+from django.contrib import admin
+from django.contrib.auth.models import User
+from django.test import TestCase, override_settings
+from django.urls import path, reverse
+
+from .models import Héllo
+
+
+class AdminSiteWithSidebar(admin.AdminSite):
+    pass
+
+
+class AdminSiteWithoutSidebar(admin.AdminSite):
+    enable_nav_sidebar = False
+
+
+site_with_sidebar = AdminSiteWithSidebar(name="test_with_sidebar")
+site_without_sidebar = AdminSiteWithoutSidebar(name="test_without_sidebar")
+
+site_with_sidebar.register(User)
+site_with_sidebar.register(Héllo)
+
+urlpatterns = [
+    path("test_sidebar/admin/", site_with_sidebar.urls),
+    path("test_wihout_sidebar/admin/", site_without_sidebar.urls),
+]
+
+
+@override_settings(ROOT_URLCONF="admin_views.test_nav_sidebar")
+class AdminSidebarTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.superuser = User.objects.create_superuser(
+            username="super",
+            password="secret",
+            email="super@example.com",
+        )
+
+    def setUp(self):
+        self.client.force_login(self.superuser)
+
+    def test_sidebar_not_on_index(self):
+        response = self.client.get(reverse("test_with_sidebar:index"))
+        self.assertContains(response, '<div class="main" id="main">')
+        self.assertNotContains(
+            response, '<nav class="sticky" id="nav-sidebar" aria-label="Sidebar">'
+        )
+
+    def test_sidebar_disabled(self):
+        response = self.client.get(reverse("test_without_sidebar:index"))
+        self.assertNotContains(
+            response, '<nav class="sticky" id="nav-sidebar" aria-label="Sidebar">'
+        )
+
+    def test_sidebar_unauthenticated(self):
+        self.client.logout()
+        response = self.client.get(reverse("test_with_sidebar:login"))
+        self.assertNotContains(
+            response, '<nav class="sticky" id="nav-sidebar" aria-label="Sidebar">'
+        )
+
+    def test_sidebar_aria_current_page(self):
+        url = reverse("test_with_sidebar:auth_user_changelist")
+        response = self.client.get(url)
+        self.assertContains(
+            response, '<nav class="sticky" id="nav-sidebar" aria-label="Sidebar">'
+        )
+        self.assertContains(
+            response, '<a href="%s" aria-current="page">Users</a>' % url
+        )
+
+    @override_settings(
+        TEMPLATES=[
+            {
+                "BACKEND": "django.template.backends.django.DjangoTemplates",
+                "DIRS": [],
+                "APP_DIRS": True,
+                "OPTIONS": {
+                    "context_processors": [
+                        "django.contrib.auth.context_processors.auth",
+                        "django.contrib.messages.context_processors.messages",
+                    ],
+                },
+            }
+        ]
+    )
+    def test_sidebar_aria_current_page_missing_without_request_context_processor(self):
+        url = reverse("test_with_sidebar:auth_user_changelist")
+        response = self.client.get(url)
+        self.assertContains(
+            response, '<nav class="sticky" id="nav-sidebar" aria-label="Sidebar">'
+        )
+        # Does not include aria-current attribute.
+        self.assertContains(response, '<a href="%s">Users</a>' % url)
+
+    @override_settings(DEBUG=True)
+    def test_included_app_list_template_context_fully_set(self):
+        # All context variables should be set when rendering the sidebar.
+        url = reverse("test_with_sidebar:auth_user_changelist")
+        with self.assertNoLogs("django.template", "DEBUG"):
+            self.client.get(url)
+
+    def test_sidebar_model_name_non_ascii(self):
+        url = reverse("test_with_sidebar:admin_views_héllo_changelist")
+        response = self.client.get(url)
+        self.assertContains(
+            response, '<div class="app-admin_views module current-app">'
+        )
+        self.assertContains(response, '<tr class="model-héllo current-model">')
+        self.assertContains(
+            response,
+            '<th scope="row" id="admin_views-héllo">'
+            '<a href="/test_sidebar/admin/admin_views/h%C3%A9llo/" aria-current="page">'
+            "Héllos</a></th>",
+            html=True,
+        )
+
+
+@override_settings(ROOT_URLCONF="admin_views.test_nav_sidebar")
+class PlaywrightTests(AdminPlaywrightTestCase):
+    available_apps = ["admin_views"] + AdminPlaywrightTestCase.available_apps
+
+    def setUp(self):
+        self.superuser = User.objects.create_superuser(
+            username="super",
+            password="secret",
+            email="super@example.com",
+        )
+        self.admin_login(
+            username="super",
+            password="secret",
+            login_url=reverse("test_with_sidebar:index"),
+        )
+        self.page.local_storage.remove_item("django.admin.navSidebarIsOpen")
+
+    def test_sidebar_starts_open(self):
+        self.page.goto(
+            self.live_server_url + reverse("test_with_sidebar:auth_user_changelist")
+        )
+        main_element = self.page.locator("#main")
+        self.expect(main_element).to_contain_class("shifted")
+
+    def test_sidebar_can_be_closed(self):
+        self.page.goto(
+            self.live_server_url + reverse("test_with_sidebar:auth_user_changelist")
+        )
+        toggle_button = self.page.locator("#toggle-nav-sidebar")
+        self.expect(toggle_button).to_have_role("button")
+        self.expect(toggle_button).to_have_accessible_name("Toggle navigation")
+        nav_sidebar = self.page.locator("#nav-sidebar")
+        self.expect(nav_sidebar).to_have_attribute("aria-expanded", "true")
+        self.expect(nav_sidebar).to_be_visible()
+        toggle_button.click()
+
+        # Hidden sidebar is not visible.
+        self.expect(nav_sidebar).to_have_attribute("aria-expanded", "false")
+        self.expect(nav_sidebar).to_be_hidden()
+        main_element = self.page.locator("#main")
+        self.expect(main_element).not_to_contain_class("shifted")
+
+    def test_sidebar_state_persists(self):
+        self.page.goto(
+            self.live_server_url + reverse("test_with_sidebar:auth_user_changelist")
+        )
+        self.assertIsNone(
+            self.page.local_storage.get_item("django.admin.navSidebarIsOpen")
+        )
+        toggle_button = self.page.locator("#toggle-nav-sidebar")
+        toggle_button.click()
+        self.assertEqual(
+            self.page.local_storage.get_item("django.admin.navSidebarIsOpen"),
+            "false",
+        )
+        self.page.goto(
+            self.live_server_url + reverse("test_with_sidebar:auth_user_changelist")
+        )
+        main_element = self.page.locator("#main")
+        self.expect(main_element).not_to_contain_class("shifted")
+
+        toggle_button = self.page.locator("#toggle-nav-sidebar")
+        # Hidden sidebar is not visible.
+        nav_sidebar = self.page.locator("#nav-sidebar")
+        self.expect(nav_sidebar).to_have_attribute("aria-expanded", "false")
+        self.expect(nav_sidebar).to_be_hidden()
+        toggle_button.click()
+        self.expect(nav_sidebar).to_have_attribute("aria-expanded", "true")
+        self.expect(nav_sidebar).to_be_visible()
+        self.assertEqual(
+            self.page.local_storage.get_item("django.admin.navSidebarIsOpen"),
+            "true",
+        )
+        self.page.goto(
+            self.live_server_url + reverse("test_with_sidebar:auth_user_changelist")
+        )
+        main_element = self.page.locator("#main")
+        self.expect(main_element).to_contain_class("shifted")
+
+    def test_sidebar_filter_persists(self):
+        self.page.goto(
+            self.live_server_url + reverse("test_with_sidebar:auth_user_changelist")
+        )
+        self.assertIsNone(
+            self.page.session_storage.get_item("django.admin.navSidebarFilterValue")
+        )
+        filter_input = self.page.locator("#nav-filter")
+        filter_input.fill("users")
+        self.assertEqual(
+            self.page.session_storage.get_item("django.admin.navSidebarFilterValue"),
+            "users",
+        )

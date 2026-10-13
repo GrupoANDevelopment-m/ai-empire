@@ -1,0 +1,318 @@
+{
+  "allRuns": "Alle Läufe",
+  "blockingDeps": {
+    "dependency": "Abhängigkeiten",
+    "reason": "Grund",
+    "title": "Abhängigkeiten die die Planung des Task blockieren"
+  },
+  "calendar": {
+    "backfill": "Auffüllung",
+    "daily": "Täglich",
+    "hourly": "Stündlich",
+    "legend": {
+      "less": "Weniger",
+      "mixed": "Mittel",
+      "more": "Mehr"
+    },
+    "navigation": {
+      "nextMonth": "Nächster Monat",
+      "nextYear": "Nächstes Jahr",
+      "previousMonth": "Vorheriger Monat",
+      "previousYear": "Vorheriges Jahr"
+    },
+    "noData": "Keine Daten verfügbar",
+    "noFailedRuns": "Keine fehlgeschlagenen Läufe",
+    "noRuns": "Keine Läufe",
+    "totalRuns": "Gesamtzahl der Läufe",
+    "week": "Kalenderwoche {{weekNumber}}",
+    "weekdays": {
+      "friday": "Freitag",
+      "monday": "Montag",
+      "saturday": "Samstag",
+      "sunday": "Sonntag",
+      "thursday": "Donnerstag",
+      "tuesday": "Dienstag",
+      "wednesday": "Mittwoch"
+    }
+  },
+  "code": {
+    "bundleUrl": "Bündel Url",
+    "noCode": "Kein Programmcode gefunden",
+    "parseDuration": "Einlesedauer:",
+    "parsedAt": "Eingelesen um:"
+  },
+  "deadlineAlerts": {
+    "completionRule": "Muss innerhalb von {{interval}} nach {{reference}} abgeschlossen sein",
+    "completionRuleDynamic": "Muss innerhalb eines variablen, ab {{reference}} gemessenen Intervalls abgeschlossen werden",
+    "count_one": "{{count, number}} Frist",
+    "count_other": "{{count, number}} Fristen",
+    "referenceType": {
+      "AverageRuntimeDeadline": "durchschnittlicher Laufzeit",
+      "DagRunLogicalDateDeadline": "logischem Datum des Dag-Laufs",
+      "DagRunQueuedAtDeadline": "Einstellen in die Warteschlange"
+    }
+  },
+  "deadlineStatus": {
+    "actual": "Tatsächlich",
+    "expected": "Erwartet",
+    "finishedEarly": "{{duration}} vor der Frist abgeschlossen",
+    "finishedLate": "{{duration}} nach der Frist abgeschlossen",
+    "label": "Frist",
+    "met": "Erfüllt",
+    "missed": "Verpasst",
+    "missedCount_one": "{{count, number}} verpasste Frist",
+    "missedCount_other": "{{count, number}} verpasste Fristen",
+    "mixedCount": "{{missedCount, number}} verpasst, {{upcomingCount, number}} bevorstehend",
+    "stillRunning": "Noch laufend",
+    "upcoming": "Bevorstehend",
+    "upcomingCount_one": "{{count, number}} bevorstehende Frist",
+    "upcomingCount_other": "{{count, number}} bevorstehende Fristen"
+  },
+  "extraLinks": "Extra Links",
+  "grid": {
+    "buttons": {
+      "newerRuns": "Neuere Läufe",
+      "olderRuns": "Ältere Läufe",
+      "resetToLatest": "Auf Letzten zurücksetzen",
+      "toggleGroup": "Gruppen umschalten"
+    },
+    "runTypeLegend": "Legende für Lauf-Typen"
+  },
+  "header": {
+    "buttons": {
+      "advanced": "Erweitert",
+      "dagDocs": "Dag Dokumentation"
+    },
+    "status": {
+      "deactivated": "Deaktiviert"
+    }
+  },
+  "logs": {
+    "allLevels": "Alle Protokoll-Stufen",
+    "allSources": "Alle Quellen",
+    "critical": "CRITICAL",
+    "debug": "DEBUG",
+    "error": "ERROR",
+    "info": "INFO",
+    "noTryNumber": "Keine Versuchsnummer",
+    "search": {
+      "matchCount": "{{current, number}} von {{total, number}}",
+      "noMatches": "Keine Treffer",
+      "placeholder": "Protokolle durchsuchen..."
+    },
+    "settings": "Protokoll-Ansicht",
+    "tryNotStarted": "Dieser Versuch ist nicht gestartet.",
+    "viewFailedTry": "Logs ansehen für fehlgeschlagenen Versuch {{tryNumber}}",
+    "viewInExternal": "Protokoll in {{name}} (Versuch {{attempt}}) ansehen",
+    "viewPreviousTry": "Logs des vorigen Versuch {{tryNumber}}",
+    "waitingToRetry": "Versuch Nummer {{tryNumber}} wartet zum Start.",
+    "warning": "WARNING"
+  },
+  "notFound": {
+    "back": "Zurück",
+    "backToDags": "Zurück zu Dags",
+    "message": "Dag \"{{dagId}}\" existiert nicht.",
+    "title": "Dag nicht gefunden"
+  },
+  "overview": {
+    "buttons": {
+      "failedRun_one": "Fehlgeschlagener Lauf",
+      "failedRun_other": "Fehlgeschlagene Läufe",
+      "failedTask_one": "Fehlgeschlagener Task",
+      "failedTask_other": "Fehlgeschlagene Tasks",
+      "failedTaskInstance_one": "Fehlgeschlagene Task Instanz",
+      "failedTaskInstance_other": "Fehlgeschlagene Task Instanzen"
+    },
+    "charts": {
+      "assetEvent_one": "Erstelltes Datenset-Ereignis",
+      "assetEvent_other": "Erstellte Datenset-Ereignisse"
+    },
+    "deadlines": {
+      "showAll": "Alle anzeigen",
+      "title": "Fristen"
+    },
+    "failedLogs": {
+      "hideLogs": "Protokolle ausblenden",
+      "showLogs": "Protokolle anzeigen",
+      "title": "Protokolle kürzlich fehlgeschlagener Tasks",
+      "viewFullLogs": "Vollständige Protokolle ansehen"
+    }
+  },
+  "panel": {
+    "buttons": {
+      "options": "Optionen",
+      "showGantt": "Gantt zeigen",
+      "showGraphShortcut": "Graph zeigen (Taste g)",
+      "showGridShortcut": "Gitter zeigen (Taste g)"
+    },
+    "dagRuns": {
+      "label": "Anzahl von Dag Läufen"
+    },
+    "dependencies": {
+      "allDagDependencies": "Alle Dag-Abhängigkeiten"
+    },
+    "graphDirection": {
+      "label": "Richtung des Graph"
+    },
+    "graphFilters": {
+      "clearFilters": "Filter zurücksetzen",
+      "durationGte": "Minimale Dauer (s)",
+      "durationGteHint": "Für gemappte Tasks wird die Gesamtdauer über alle Instanzen gemessen",
+      "mapIndex": "Min. Map-Index",
+      "mapIndexHint": "Zeigt gemappte Tasks an, die mindestens bis zu diesem Index erweitert sind",
+      "selectStatus": "Status auswählen",
+      "selectTaskGroup": "Task-Gruppe auswählen",
+      "title": "Task-Filter"
+    },
+    "showVersionIndicator": {
+      "label": "Versionsindikator anzeigen",
+      "options": {
+        "hideAll": "Alle ausblenden",
+        "showAll": "Alle anzeigen",
+        "showBundleVersion": "Bündelversion anzeigen",
+        "showDagVersion": "Dag-Version anzeigen"
+      }
+    },
+    "taskStreamFilter": {
+      "activeFilter": "Aktiver Filter",
+      "clearFilter": "Filter zurücksetzen",
+      "clickTask": "Klicken Sie auf einen Task, um ihn als Filterbasis auszuwählen",
+      "depth": "Tiefe",
+      "direction": "Richtung",
+      "label": "Filter",
+      "mode": "Modus",
+      "modeTooltip": "Der Modus \"Statisch\" behält die aktuelle Ansicht beim Navigieren zwischen verschiedenen Tasks bei, während der Modus \"Traversieren\" den aktiven Filter automatisch auf den angeklickten Task aktualisiert, um die Dag-Navigation zu erleichtern.",
+      "modes": {
+        "static": "Statisch",
+        "traverse": "Traversieren"
+      },
+      "options": {
+        "both": "Sowohl Vorgänger als auch Nachfolger",
+        "downstream": "Nachfolger",
+        "upstream": "Vorgänger"
+      },
+      "selectedTask": "Ausgewählter Task"
+    }
+  },
+  "paramsFailed": "Laden der Parameter fehlgeschlagen",
+  "parse": {
+    "toaster": {
+      "error": {
+        "description": "Die Anfrage zum Parsen des Dag ist fehlgeschlagen. Eventuell gibt es schon bestehende Anfragen.",
+        "title": "Neues Parsen des Dag fehlgeschlagen"
+      },
+      "success": {
+        "description": "Das Dag sollte gleich neu geparst sein.",
+        "title": "Anfrage zu Dag parsen erfolgreich gestartet"
+      }
+    }
+  },
+  "tabs": {
+    "assetEvents": "Ereignisse zu Datensets (Asset)",
+    "auditLog": "Prüf-Log",
+    "backfills": "Auffüllungen",
+    "calendar": "Kalender",
+    "code": "Programmcode",
+    "details": "Details",
+    "logs": "Protokolle",
+    "mappedTaskInstances_one": "Task Instanz [{{count, number}}]",
+    "mappedTaskInstances_other": "Task Instanzen [{{count, number}}]",
+    "overview": "Übersicht",
+    "renderedTemplates": "Ausgefüllte Vorlagen",
+    "requiredActions": "Interaktionen",
+    "runs": "Läufe",
+    "taskInstances": "Task Instanzen",
+    "taskStateStore": "Task Status Zwischenspeicher",
+    "tasks": "Tasks",
+    "versions": "Versionen",
+    "xcom": "Task Kommunikation (XComs)"
+  },
+  "taskGroups": {
+    "collapseAll": "Alle Task-Gruppen einklappen",
+    "expandAll": "Alle Task-Gruppen aufklappen"
+  },
+  "taskStateStore": {
+    "add": "Task Status Zwischenspeicher hinzufügen",
+    "clearAll": {
+      "resource": "alle Task Status Zwischenspeicher",
+      "title": "Alle Task Status Zwischenspeicher löschen",
+      "warning": "Alle Task Status Zwischenspeicher werden gelöscht. Tasks, die diesen Zwischenspeicher verwenden, um externe Referenzen oder einen Zwischenstand zu verfolgen, starten bei der nächsten Ausführung potentiell von vorne."
+    },
+    "delete": "Task Status Zwischenspeicher löschen",
+    "deleteWarning": "Der Task verliert diesen gespeicherten Zustand. Wenn der Task diesen Schlüssel verwendet, um externe Arbeiten zu verfolgen (z.B. eine externe Job-ID), kann er diese nicht wieder aufnehmen und startet Arbeiten potentiell wieder von vorne.",
+    "edit": "Task Status Zwischenspeicher bearbeiten",
+    "emptyStore": "Der Task Status Zwischenspeicher speichert Werte, die über Wiederholungen hinweg bestehen bleiben. Worker können den Task Status Zwischenspeicher über das Task SDK schreiben.",
+    "entry_one": "Eintrag",
+    "entry_other": "Einträge",
+    "expiresAt": {
+      "column": "Ablaufdatum",
+      "custom": "Benutzerdefiniert",
+      "default": "Standard ({{interval}})",
+      "label": "Ablauf",
+      "never": "Nie"
+    },
+    "title": "Task Status Zwischenspeicher"
+  },
+  "versions": {
+    "aboutThisComparison": "Über diesen Vergleich",
+    "base": "Vergleichen von",
+    "categories": {
+      "asset": "Datensatz (Asset)",
+      "authorization": "Autorisierung",
+      "callback": "Callback",
+      "deadline": "Termin",
+      "dependency": "Abhängigkeit",
+      "metadata": "Metadaten",
+      "param": "Parameter",
+      "provenance": "Ursprung",
+      "schedule": "Zeitplan",
+      "task": "Aufgabe",
+      "unknown": "Unbekannt"
+    },
+    "codeAccess": "Werte erfordern Zugriff auf Dag-Quellcode",
+    "columns": {
+      "after": "Nach",
+      "before": "Vor",
+      "category": "Kategorie",
+      "impact": "Auswirkung",
+      "occurrences": "Auftritte",
+      "operation": "Einsatz",
+      "path": "Pfad"
+    },
+    "heading": "Version {{base}} → Version {{target}}",
+    "impacts": {
+      "authorization": "Autorisierung",
+      "execution": "Ausführung",
+      "metadata": "Metadaten",
+      "provenance": "Ursprung",
+      "unknown": "Unbekannt"
+    },
+    "maxChanges": "Maximale Änderungen",
+    "maxChangesDefault": "Standard",
+    "noChanges": "Es gibt keinen Unterschied zwischen diesen Versionen.",
+    "observedState": "Beachteter Status",
+    "observedStateBoundary": "Vergleicht aktuell gespeichterte Dagversionen. Quellcodevergleich ist nicht verfügbar für alte Versionen; Code-Tab nutzen um Quellcode zu vergleichen.",
+    "operations": {
+      "added": "Hinzugefügt",
+      "changed": "Geändert",
+      "removed": "Entfernt"
+    },
+    "record_one": "Datensatz",
+    "record_other": "Datensätze",
+    "selectPrompt": "Zwei Versionen auswählen um Änderungen zwischen diesen zu sehen.",
+    "summary_one": "{{count, number}} Änderung · Serialisiertes Schema {{baseSchema}} → {{targetSchema}}",
+    "summary_other": "{{count, number}} Änderungen · Serialisiertes Schema {{baseSchema}} → {{targetSchema}}",
+    "target": "Vergleichen mit",
+    "truncated": {
+      "description": "Einige Änderungen werden nicht gezeigt um unter dem Limit zu bleiben, die angezeigte Anzahl ist ein Minimum an Änderungen.",
+      "title": "Einige Änderungen wurden nicht angezeigt"
+    },
+    "unavailable": {
+      "description": "Diese Versionen können nicht verglichen werden. Grund:",
+      "title": "Vergleich nicht verfügbar",
+      "withoutReason": "Diese Versionen können nicht verglichen werden."
+    },
+    "valuesHidden": "Werte verstecken",
+    "valuesShown": "Werte anzeigen"
+  }
+}

@@ -1,0 +1,381 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @format
+ */
+
+/**
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
+ */
+
+/* You can override the default Infima variables here. */
+
+@font-face {
+    font-family: 'Maison Neue';
+    src:
+        url('/fonts/MaisonNeue-LightItalic.woff2') format('woff2'),
+        url('/fonts/MaisonNeue-LightItalic.woff') format('woff'),
+        url('/fonts/MaisonNeue-LightItalic.ttf') format('truetype');
+    font-weight: 300;
+    font-style: italic;
+}
+
+@font-face {
+    font-family: 'Maison Neue';
+    src:
+        url('/fonts/MaisonNeue-Light.woff2') format('woff2'),
+        url('/fonts/MaisonNeue-Light.woff') format('woff'),
+        url('/fonts/MaisonNeue-Light.ttf') format('truetype');
+    font-weight: 300;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Maison Neue';
+    src:
+        url('/fonts/MaisonNeue-Book.woff2') format('woff2'),
+        url('/fonts/MaisonNeue-Book.woff') format('woff'),
+        url('/fonts/MaisonNeue-Book.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Maison Neue';
+    src:
+        url('/fonts/MaisonNeue-BookItalic.woff2') format('woff2'),
+        url('/fonts/MaisonNeue-BookItalic.woff') format('woff'),
+        url('/fonts/MaisonNeue-BookItalic.ttf') format('truetype');
+    font-weight: normal;
+    font-style: italic;
+}
+
+@font-face {
+    font-family: 'Maison Neue Mono';
+    src:
+        url('/fonts/MaisonNeue-Mono.woff2') format('woff2'),
+        url('/fonts/MaisonNeue-Mono.woff') format('woff'),
+        url('/fonts/MaisonNeue-Mono.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Maison Neue Mono';
+    src:
+        url('/fonts/MaisonNeue-MonoItalic.woff2') format('woff2'),
+        url('/fonts/MaisonNeue-MonoItalic.woff') format('woff'),
+        url('/fonts/MaisonNeue-MonoItalic.ttf') format('truetype');
+    font-weight: normal;
+    font-style: italic;
+}
+
+@font-face {
+    font-family: 'Maison Neue';
+    src:
+        url('/fonts/MaisonNeue-BoldItalic.woff2') format('woff2'),
+        url('/fonts/MaisonNeue-BoldItalic.woff') format('woff'),
+        url('/fonts/MaisonNeue-BoldItalic.ttf') format('truetype');
+    font-weight: bold;
+    font-style: italic;
+}
+
+@font-face {
+    font-family: 'Maison Neue';
+    src:
+        url('/fonts/MaisonNeue-Medium.woff2') format('woff2'),
+        url('/fonts/MaisonNeue-Medium.woff') format('woff'),
+        url('/fonts/MaisonNeue-Medium.ttf') format('truetype');
+    font-weight: 500;
+    font-style: normal;
+}
+
+/* Inter Font Family */
+@font-face {
+    font-family: 'Inter';
+    src: url('/fonts/Inter_18pt-Regular.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Inter';
+    src: url('/fonts/Inter_18pt-Italic.ttf') format('truetype');
+    font-weight: normal;
+    font-style: italic;
+}
+
+@font-face {
+    font-family: 'Inter';
+    src: url('/fonts/Inter_18pt-Bold.ttf') format('truetype');
+    font-weight: bold;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Inter';
+    src: url('/fonts/Inter_18pt-BoldItalic.ttf') format('truetype');
+    font-weight: bold;
+    font-style: italic;
+}
+
+@font-face {
+    font-family: 'Inter';
+    src: url('/fonts/Inter_18pt-SemiBold.ttf') format('truetype');
+    font-weight: 600;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: 'Inter';
+    src: url('/fonts/Inter_18pt-SemiBoldItalic.ttf') format('truetype');
+    font-weight: 600;
+    font-style: italic;
+}
+
+:root {
+    --ifm-navbar-padding-vertical: 0;
+    /* color palette */
+    --color-background: #f7f7f7;
+    --color-background-secondary: #f0f0f0;
+    --color-primary: #fe9801;
+    --color-primary-hover: #fe8801;
+    --color-secondary: #ff7701;
+    --color-accent: #ff4300;
+    --color-text: #000000;
+    --dark-yellow: #e59c24;
+    --light-grey: #7f8790;
+    --color-green: #32963a;
+    --color-green-border: #2e8b32;
+    --color-green-hover: #28822d;
+    --color-shadow-background: rgba(0, 0, 0, 0.08);
+    --color-shadow: rgba(0, 0, 0, 0.1);
+    --color-shadow-hovered: rgba(0, 0, 0, 0.15);
+    --code-snippet-background: #e0e0e0;
+    --code-snippet-placeholder-background: #f1f5f9;
+    --code-snippet-placeholder-text-color: #f1f5f9;
+    --color-landing-page-card-background: rgba(255, 255, 255, 0.05);
+    --color-landing-page-card-background-hovered: rgba(255, 255, 255, 0.08);
+    --color-landing-page-card-border: rgba(255, 255, 255, 0.1);
+    --ifm-navbar-padding-vertical: 0;
+    --ifm-font-family-base:
+        'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+        'Helvetica Neue', Arial, sans-serif;
+    --ifm-heading-font-weight: 'bold';
+
+    --ifm-background-color: var(--color-background);
+    --ifm-navbar-background-color: var(--ifm-background-color);
+    --ifm-footer-background-color: var(--ifm-navbar-background-color);
+
+    /* Override Docusaurus link and sidebar colors */
+    --ifm-menu-color-active: var(--color-primary); /* Active menu item color */
+    --ifm-color-primary: var(--color-primary); /* Primary color used for various elements including sidebar category headings */
+}
+
+/* Dark mode styles */
+html[data-theme='dark'] {
+    /* Adjust color palette for dark mode */
+    --color-background: #1e1e1e;
+    --color-background-secondary: #44474b;
+    --color-primary: #ffb133;
+    --color-secondary: #ff9633;
+    --color-accent: #ff4300;
+    --color-text: #efefef;
+    --light-grey: #a0a8b1;
+    --color-green: #1c6320;
+    --color-green-border: #1a4a1c;
+    --color-green-hover: #194a1b;
+    --color-shadow: rgba(255, 255, 255, 0.1);
+    --color-shadow-hovered: rgba(255, 255, 255, 0.15);
+    --code-snippet-background: rgba(255, 255, 255, 0.1);
+    --code-snippet-placeholder-background: #282a36;
+    --code-snippet-placeholder-text-color: #f8f8f2;
+
+    /* Adjust docusaurus color specific variables for dark mode */
+    --ifm-background-color: var(--color-background);
+    --ifm-navbar-background-color: var(--ifm-background-color);
+    --ifm-footer-background-color: var(--ifm-navbar-background-color);
+}
+
+/* CUSTOM CSS FOR BLOG */
+
+/* add outline to blog tiles */
+article.margin-bottom--xl {
+    margin-bottom: 5rem !important;
+    padding: 1rem;
+    border: 1px solid var(--ifm-color-emphasis-300);
+    border-radius: var(--ifm-pagination-nav-border-radius);
+}
+
+/* reduce blog title font size */
+article h2.title_f1Hy {
+    font-size: 2.5rem;
+}
+
+/* remove author title and socials */
+article .authorTitle_nd0D,
+article .authorSocials_rSDt {
+    display: none
+}
+
+/* reformat author list */
+.col.col--6.authorCol_Hf19 {
+    width: unset;
+    flex: unset
+}
+
+/* article header {
+    border-bottom: 1px solid var(--ifm-color-emphasis-300);
+    margin-bottom: 1rem;
+} */
+
+/* reduce margin for tags at bottom of tile */
+.row .docusaurus-mt-lg {
+    margin-top: 1rem
+}
+
+/* END OF CUSTOM CSS FOR BLOG */
+
+.docusaurus-highlight-code-line {
+    background-color: rgb(72, 77, 91);
+    display: block;
+    margin: 0 calc(-1 * var(--ifm-pre-padding));
+    padding: 0 var(--ifm-pre-padding);
+}
+
+.navbar .navbar__link,
+.navbar .navbar__toggle,
+.navbar .menu__link,
+.navbar .navbar-sidebar__back {
+    color: var(--navbar-text);
+}
+
+.navbar__brand,
+.navbar__logo {
+    height: 100%;
+}
+
+.navbar .navbar__icon {
+    padding: 0px;
+    padding-right: 1rem;
+}
+
+.navbar .navbar__icon:hover {
+    opacity: 0.8;
+}
+
+.navbar .navbar__icon:active {
+    opacity: 0.7;
+}
+
+.navbar .navbar__icon:before {
+    content: '';
+    display: flex;
+    height: 20px;
+    width: 21px;
+    color: var(--navbar-text);
+    background-color: var(--navbar-text);
+}
+
+.navbar .stackoverflow__link:before {
+    background: url(/img/icon-stackoverflow.svg);
+    background-repeat: no-repeat;
+}
+
+.navbar .github__link:before {
+    background: url(/img/icon-github-light-mode.svg);
+    background-repeat: no-repeat;
+}
+
+html[data-theme='dark'] .navbar .github__link:before {
+    background: url(/img/icon-github-dark-mode.svg);
+}
+
+.navbar .discord__link:before {
+    background: url(/img/Discord-Symbol-light-mode.svg);
+    background-repeat: no-repeat;
+    height: 16px;
+}
+
+html[data-theme='dark'] .navbar .discord__link:before {
+    background: url(/img/Discord-Symbol-dark-mode.svg);
+}
+
+.navbar-sidebar .navbar__icon {
+    padding: var(--ifm-menu-link-padding-vertical)
+        var(--ifm-menu-link-padding-horizontal);
+}
+
+.navbar-sidebar .navbar__icon:hover {
+    opacity: 1;
+}
+
+.navbar-sidebar .navbar__icon:active {
+    opacity: 1;
+}
+
+.navbar__title {
+    color: var(--color-text);
+}
+
+/* Add a faint line to the bottom of the navbar */
+.navbar {
+    border-bottom: 1px solid var(--color-background-secondary);
+}
+
+/* Add a faint line to separate the footer from main content */
+.footer {
+    border-top: 1px solid var(--color-background-secondary);
+}
+
+.rounded {
+    border-radius: 0.25rem;
+}
+
+.version {
+    padding: 3px 5px;
+    font-size: 12px;
+    border-radius: 6px;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.version.added {
+    background: var(--flow-green);
+    color: var(--color-text);
+}
+
+.version.removed {
+    background: var(--flow-red);
+    color: var(--color-text);
+}
+
+.gh-btn {
+    position: relative;
+    vertical-align: middle;
+}
+
+@media (min-width: 1680px) {
+    .docusaurus-mermaid-container {
+        /* Make mermaid graphs use up all the width available so that they are legible. */
+        margin-left: calc(
+            -50vw + var(--doc-sidebar-width) + var(--ifm-container-width-xl) / 2
+        );
+        margin-right: calc(-50vw + var(--ifm-container-width-xl) / 2);
+        max-width: initial !important;
+    }
+}
+
+/* Make h4 headings in doc content visually distinct as sub-headings,
+   while staying smaller and lighter than h3 (which is the parent heading).
+   This affects only in-page rendering — the right-sidebar TOC uses
+   its own theme classes (.table-of-contents__link) and is not affected. */
+.markdown h4 {
+    font-size: 1.25rem;
+    font-weight: 600;
+}

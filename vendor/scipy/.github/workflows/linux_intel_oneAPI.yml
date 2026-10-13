@@ -1,0 +1,78 @@
+name: Intel oneAPI tests
+
+on:
+  push:
+    branches:
+      - maintenance/**
+  pull_request:
+    branches:
+      - main
+      - maintenance/**
+  schedule:
+  #        ┌───────────── minute (0 - 59)
+  #        │  ┌───────────── hour (0 - 23)
+  #        │  │  ┌───────────── day of the month (1 - 31)
+  #        │  │  │  ┌───────────── month (1 - 12 or JAN-DEC)
+  #        │  │  │  │ ┌───────────── day of the week (0 - 6 or SUN-SAT)
+  #        │  │  │  │ │
+  - cron: "9  9 2/2 * *"
+
+permissions:
+   contents: read  # to fetch code (actions/checkout)
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  get_commit_message:
+    name: Get commit message
+    uses: ./.github/workflows/commit_message.yml
+
+  icx_icpx_ifx_mkl:
+    name: test
+    needs: get_commit_message
+    # Ensure (a) this doesn't run on forks by default, and
+    #        (b) it does run with Act locally (`github` doesn't exist there)
+    if: >
+      needs.get_commit_message.outputs.message == 1
+      && (github.repository == 'scipy/scipy' || github.repository == '')
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      # Reference https://github.com/easimon/maximize-build-space/blob/master/action.yml
+      # see https://github.com/scipy/scipy/issues/23813
+      - name: Free up disk space
+        run: |
+          df -h
+          sudo rm -rf /usr/local/lib/android
+          df -h
+
+      - uses: prefix-dev/setup-pixi@a0af7a228712d6121d37aba47adf55c1332c9c2e # v0.9.4
+        with:
+          pixi-version: v0.77.1
+          cache: false
+          environments: >-
+            build-intel
+            test-intel
+          activate-environment: build-intel
+
+      - name: cache install
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /opt/intel/oneapi/
+          key: install-${{ env.LINUX_CPPKIT_URL }}-${{ env.LINUX_HPCKIT_URL }}-compiler
+
+      - name: Initialise Intel oneAPI and Build SciPy
+        shell: bash -l {0}
+        run: pixi run build-intel
+
+      - name: Test scipy
+        shell: bash -l {0}
+        run: pixi run --environment=test-intel --skip-deps test-intel

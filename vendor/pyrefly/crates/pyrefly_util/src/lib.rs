@@ -1,0 +1,69 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+#![warn(clippy::all)]
+#![allow(clippy::enum_variant_names)]
+#![allow(clippy::manual_flatten)]
+#![allow(clippy::match_like_matches_macro)]
+#![allow(clippy::module_inception)]
+#![allow(clippy::needless_lifetimes)]
+#![allow(clippy::new_without_default)]
+#![allow(clippy::should_implement_trait)]
+#![allow(clippy::single_match)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::wrong_self_convention)]
+#![deny(clippy::cloned_instead_of_copied)]
+#![deny(clippy::derive_partial_eq_without_eq)]
+#![deny(clippy::inefficient_to_string)]
+#![deny(clippy::str_to_string)]
+#![deny(clippy::trivially_copy_pass_by_ref)]
+
+//! Utility functions that are not specific to the things Pyre does.
+
+pub mod absolutize;
+pub mod arc_id;
+pub mod args;
+pub mod assert_size;
+pub mod demand_tree;
+pub mod display;
+pub mod events;
+pub mod forgetter;
+pub mod fs_anyhow;
+pub mod gas;
+pub mod globs;
+pub mod includes;
+pub mod interned_path;
+pub mod lined_buffer;
+pub mod lock;
+pub mod locked_map;
+pub mod memory;
+pub mod no_hash;
+pub mod owner;
+pub mod panic;
+pub mod prelude;
+pub mod recurser;
+pub mod ruff_visitors;
+pub mod small_map1;
+pub mod small_set1;
+pub mod stdlib;
+pub mod suggest;
+pub mod tarjan;
+pub mod task_heap;
+pub mod telemetry;
+pub mod test_path;
+pub mod thread_pool;
+pub mod timer;
+pub mod trace;
+pub mod uniques;
+pub mod unix_path;
+pub mod upward_search;
+pub mod visit;
+pub mod watch_pattern;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod watcher;
+pub mod with_hash;

@@ -1,0 +1,69 @@
+{
+  "name": "n8n-nodes-playwright",
+  "version": "0.2.21",
+  "description": "n8n-community-node-package for browser automation using Playwright",
+  "keywords": [
+    "n8n-community-node-package"
+  ],
+  "license": "MIT",
+  "homepage": "",
+  "author": {
+    "name": "Mohamed Toema",
+    "email": "m.toema20@gmail.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/toema/n8n-playwright"
+  },
+  "engines": {
+    "node": ">=18.10",
+    "pnpm": ">=9.1"
+  },
+  "packageManager": "pnpm@9.1.4",
+  "main": "dist/nodes/index.js",
+  "scripts": {
+    "preinstall": "npx only-allow pnpm",
+    "postinstall": "npm config set yes true && node dist/nodes/scripts/setup-browsers.js",
+    "rebuild": "node dist/nodes/scripts/setup-browsers.js",
+    "setup": "npm config set yes true && node dist/nodes/scripts/setup-browsers.js ",
+    "test:setup": "ts-node scripts/test-setup.ts",
+    "build": "tsc && gulp build:icons",
+    "dev": "tsc --watch",
+    "format": "prettier nodes package.json --write",
+    "lint": "eslint nodes package.json",
+    "lintfix": "eslint nodes package.json --fix",
+    "prepublish": "pnpm build && pnpm lint -c .eslintrc.prepublish.js nodes  package.json && npm version patch",
+    "publish": " npm publish --access public"
+  },
+  "files": [
+    "dist",
+    "nodes/browsers"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "nodes": [
+      "dist/nodes/playwright/Playwright.node.js"
+    ]
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^22.10.1",
+    "@typescript-eslint/parser": "^7.15.0",
+    "eslint": "^8.56.0",
+    "eslint-plugin-n8n-nodes-base": "^1.16.1",
+    "gulp": "^4.0.2",
+    "n8n-workflow": "*",
+    "playwright": "^1.49.0",
+    "prettier": "^3.3.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.3"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  },
+  "dependencies": {
+    "@n8n/vm2": "^3.9.25",
+    "fs-extra": "^11.2.0",
+    "playwright": "1.49.0"
+  }
+}

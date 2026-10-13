@@ -1,0 +1,51 @@
+name: CI - .NET
+
+on:
+  workflow_call:
+    inputs:
+      compile-manager:
+        description: Build Selenium Manager from source instead of downloading the pinned binary
+        required: false
+        type: boolean
+        default: false
+  workflow_dispatch:
+    inputs:
+      compile-manager:
+        description: Build Selenium Manager from source instead of downloading the pinned binary
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint
+    uses: ./.github/workflows/bazel.yml
+    with:
+      name: Lint
+      os: windows
+      run: ./go dotnet:lint
+
+  integration-tests:
+    name: Browser Tests
+    uses: ./.github/workflows/bazel.yml
+    with:
+      name: Browser Tests
+      os: windows
+      needs-display: true
+      rerun-with-debug: true
+      run: |
+        bazel test ${{ inputs.compile-manager && '--manager=host' || '' }} //dotnet/test/webdriver:ElementFindingTests-firefox //dotnet/test/webdriver:ElementFindingTests-chrome
+
+  remote-tests:
+    name: Remote Tests
+    uses: ./.github/workflows/bazel.yml
+    with:
+      name: Remote Tests
+      os: windows
+      needs-display: true
+      rerun-with-debug: true
+      run: |
+        bazel test ${{ inputs.compile-manager && '--manager=host' || '' }} //dotnet/test/remote --flaky_test_attempts=3

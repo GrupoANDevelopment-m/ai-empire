@@ -1,0 +1,11 @@
+-r test-common-base.in
+
+blockbuster
+coverage
+isal; python_version < "3.14" and implementation_name == "cpython" # no wheel for 3.14, no PyPy wheel for 1.8.0+
+mypy; implementation_name == "cpython"
+pytest-xdist
+pytest_codspeed
+python-on-whales; implementation_name == "cpython" # Used for autobahn, not run on PyPy
+trustme; platform_machine != "i686" and implementation_name == "cpython" # TODO: include on PyPy once new release is out
+zlib_ng

@@ -1,0 +1,281 @@
+/**
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ *
+ * @format
+ */
+
+/*
+ * We should explicitly list all the labels below, so that src/js/docs-categories.js that generates
+ * the /en/docs page will automatically work.
+ *
+ * For categories, the first item must be the index page.
+ */
+
+import type { SidebarsConfig } from '@docusaurus/plugin-content-docs';
+
+let docsSidebar = [
+    {
+        type: 'doc' as const,
+        id: 'index',
+        label: 'Introduction',
+    },
+    {
+        type: 'category' as const,
+        label: 'Learn Python Typing',
+        description:
+            'Never used a type system before or just new to Pyrefly? Start here!',
+        items: [
+            'typing-for-python-developers',
+            'python-typing-for-beginners',
+            'python-features-and-peps',
+        ],
+    },
+    {
+        type: 'category' as const,
+        label: 'Getting Started',
+        description:
+            'Never used a type system before or just new to Pyrefly? Start here!',
+        collapsed: false,
+        items: ['installation', 'shell-completion', 'configuration', 'wasm'],
+    },
+    {
+        type: 'doc' as const,
+        id: 'compare',
+        label: 'Compare Type Checkers',
+    },
+    {
+        type: 'category' as const,
+        label: 'Migrating to Pyrefly',
+        description:
+            'Move an existing project from mypy or Pyright, one step at a time',
+        collapsed: false,
+        items: [
+            'migrate/index',
+            {
+                type: 'category' as const,
+                label: 'From mypy',
+                items: [
+                    'migrate/mypy/index',
+                    'migrate/mypy/plugins',
+                    'migrate/mypy/strict-mode',
+                    'migrate/mypy/ignore-missing-imports',
+                    'migrate/mypy/config-reference',
+                    'migrate/mypy/error-codes',
+                ],
+            },
+            {
+                type: 'category' as const,
+                label: 'From Pyright',
+                items: [
+                    'migrate/pyright/index',
+                    'migrate/pyright/strict-mode',
+                    'migrate/pyright/missing-imports',
+                    'migrate/pyright/unknown-member-type',
+                    'migrate/pyright/config-reference',
+                    'migrate/pyright/diagnostics-reference',
+                ],
+            },
+            'migrate/pylint',
+        ],
+    },
+    {
+        type: 'category' as const,
+        label: 'Language Server',
+        description: 'Learn how to use Pyrefly in your IDE',
+        collapsed: false,
+        items: ['IDE', 'IDE-features'],
+    },
+    {
+        type: 'category' as const,
+        label: 'Third-Party Extensions',
+        items: [
+            {
+                type: 'category' as const,
+                label: 'Pydantic Support',
+                items: [
+                    {
+                        type: 'doc' as const,
+                        id: 'pydantic',
+                        label: 'Overview',
+                    },
+                    {
+                        type: 'doc' as const,
+                        id: 'pydantic-lax-conversions',
+                        label: 'Lax Mode Type Conversions',
+                    },
+                ],
+            },
+            {
+                type: 'doc' as const,
+                id: 'dataframes',
+                label: 'DataFrames (polars, pandas)',
+            },
+            {
+                type: 'doc' as const,
+                id: 'attrs',
+                label: 'attrs Support',
+            },
+            {
+                type: 'doc' as const,
+                id: 'pytest',
+                label: 'Pytest Support',
+            },
+            {
+                type: 'doc' as const,
+                id: 'django',
+                label: 'Django Support',
+            },
+        ],
+    },
+    {
+        type: 'category' as const,
+        label: 'Errors',
+        collapsed: false,
+        items: [
+            {
+                type: 'doc' as const,
+                id: 'error-suppressions',
+                label: 'Error Suppressions',
+            },
+            {
+                type: 'doc' as const,
+                id: 'error-kinds',
+                label: 'Error Kinds',
+            },
+        ],
+    },
+    {
+        type: 'doc' as const,
+        id: 'import-resolution',
+        label: 'Import Resolution',
+    },
+    {
+        type: 'category' as const,
+        label: 'Build System Integration',
+        collapsed: false,
+        items: [
+            {
+                type: 'doc' as const,
+                id: 'bazel',
+                label: 'Bazel',
+            },
+            {
+                type: 'doc' as const,
+                id: 'pants',
+                label: 'Pants',
+            },
+        ],
+    },
+    {
+        type: 'category' as const,
+        label: 'Tools',
+        collapsed: false,
+        items: [
+            {
+                type: 'doc' as const,
+                id: 'autotype',
+                label: 'Automating Type Annotations',
+            },
+            {
+                type: 'doc' as const,
+                id: 'report',
+                label: 'Measuring Type Coverage',
+            },
+            {
+                type: 'doc' as const,
+                id: 'stubgen',
+                label: 'Generating Stub Files',
+            },
+        ],
+    },
+    {
+        type: 'category' as const,
+        label: 'Tensor Shapes',
+        description:
+            'Static type checking of tensor shapes in PyTorch models',
+        collapsed: false,
+        items: [
+            {
+                type: 'doc' as const,
+                id: 'tensor-shapes',
+                label: 'Overview',
+            },
+            {
+                type: 'doc' as const,
+                id: 'tensor-shapes-setup',
+                label: 'Getting Started',
+            },
+            {
+                type: 'category' as const,
+                label: 'Tutorials',
+                items: [
+                    {
+                        type: 'doc' as const,
+                        id: 'tensor-shapes-tutorial-basics',
+                        label: '1. Your First Port',
+                    },
+                    {
+                        type: 'doc' as const,
+                        id: 'tensor-shapes-tutorial-loops',
+                        label: '2. Loops and Stacking',
+                    },
+                    {
+                        type: 'doc' as const,
+                        id: 'tensor-shapes-tutorial-architectures',
+                        label: '3. Complex Architectures',
+                    },
+                    {
+                        type: 'doc' as const,
+                        id: 'tensor-shapes-tutorial-advanced',
+                        label: '4. Configs and Dynamic Patterns',
+                    },
+                ],
+            },
+            {
+                type: 'doc' as const,
+                id: 'tensor-shapes-ai-porting',
+                label: 'Agent Skill',
+            },
+            {
+                type: 'doc' as const,
+                id: 'tensor-shapes-reference',
+                label: 'API Reference',
+            },
+            {
+                type: 'doc' as const,
+                id: 'tensor-shapes-library-authors',
+                label: 'Stub Library Author Reference',
+            },
+            {
+                type: 'doc' as const,
+                id: 'tensor-shapes-contributing',
+                label: 'Contributing',
+            },
+        ],
+    },
+    {
+        type: 'doc' as const,
+        id: 'pyrefly-faq',
+        label: 'FAQ',
+    },
+];
+
+if (process.env.INTERNAL_STATIC_DOCS === '1') {
+    docsSidebar.push({
+        type: 'category' as const,
+        label: 'Internal Docs',
+        description: 'Documentation for Meta-internal usages of Pyrefly only',
+        collapsed: false,
+        items: ['fb/instagram'],
+    });
+}
+
+const sidebars: SidebarsConfig = {
+    docsSidebar,
+};
+
+export { docsSidebar };
+export default sidebars;

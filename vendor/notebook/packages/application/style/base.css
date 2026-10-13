@@ -1,0 +1,110 @@
+/*-----------------------------------------------------------------------------
+| Copyright (c) Jupyter Development Team.
+| Distributed under the terms of the Modified BSD License.
+|----------------------------------------------------------------------------*/
+
+:root {
+  --jp-private-topbar-height: 28px;
+  /* Override the layout-2 color for the dark theme */
+  --md-grey-800: #323232;
+  --jp-notebook-max-width: 1200px;
+}
+
+/*
+  Override the default background
+  See https://github.com/jupyterlab/jupyterlab/pull/16519 for more information
+*/
+body.jp-ThemedContainer {
+  margin: 0;
+  padding: 0;
+  background: var(--jp-layout-color2);
+}
+
+#main.jp-ThemedContainer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--jp-layout-color2);
+}
+
+#top-panel-wrapper {
+  min-height: calc(1.5 * var(--jp-private-topbar-height));
+  border-bottom: var(--jp-border-width) solid var(--jp-border-color0);
+  background: var(--jp-layout-color1);
+}
+
+#top-panel {
+  display: flex;
+  min-height: calc(1.5 * var(--jp-private-topbar-height));
+  padding-left: 5px;
+  padding-right: 5px;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 1200px;
+}
+
+#menu-panel-wrapper {
+  min-height: var(--jp-private-topbar-height);
+  background: var(--jp-layout-color1);
+  border-bottom: var(--jp-border-width) solid var(--jp-border-color0);
+  box-shadow: var(--jp-elevation-z1);
+}
+
+#menu-panel {
+  display: flex;
+  min-height: var(--jp-private-topbar-height);
+  background: var(--jp-layout-color1);
+  padding-left: 5px;
+  padding-right: 5px;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: var(--jp-notebook-max-width);
+}
+
+#main-panel {
+  margin-left: auto;
+  margin-right: auto;
+  max-width: var(--jp-notebook-max-width);
+}
+
+#spacer-widget-top {
+  min-height: 16px;
+}
+
+/* Only edit pages should have a bottom space */
+
+body[data-notebook='edit'] #spacer-widget-bottom {
+  min-height: 16px;
+}
+
+/* Special case notebooks as document oriented pages */
+
+[data-notebook]:not(body[data-notebook='notebooks']) #main-panel {
+  box-shadow: var(--jp-elevation-z4);
+}
+
+.jp-TreePanel > .lm-TabPanel-stackedPanel {
+  box-shadow: var(--jp-elevation-z4);
+}
+
+body[data-notebook='notebooks'] #main-panel {
+  margin-left: unset;
+  margin-right: unset;
+  max-width: unset;
+}
+
+body[data-notebook='notebooks'] #spacer-widget-top {
+  min-height: unset;
+}
+
+#main-panel > .jp-TreePanel {
+  padding: 0px 5px;
+}
+
+@media only screen and (max-width: 760px) {
+  #main-panel > .jp-TreePanel {
+    margin: 0px -5px;
+  }
+}

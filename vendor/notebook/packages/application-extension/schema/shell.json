@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "title": "Notebook Shell",
+  "description": "Notebook Shell layout settings.",
+  "properties": {
+    "layout": {
+      "$ref": "#/definitions/layout",
+      "type": "object",
+      "title": "Customize shell widget positioning",
+      "description": "Overrides default widget position in the application layout",
+      "default": {
+        "Debugger Console": { "area": "down" },
+        "Markdown Preview": { "area": "right" },
+        "Plugins": { "area": "left" }
+      }
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "definitions": {
+    "layout": {
+      "type": "object",
+      "patternProperties": {
+        "[\\w-]+": {
+          "type": "object",
+          "properties": {
+            "area": {
+              "type": "string",
+              "oneOf": [
+                { "const": "main", "title": "Main" },
+                { "const": "top", "title": "Top" },
+                { "const": "menu", "title": "Menu" },
+                { "const": "left", "title": "Left" },
+                { "const": "right", "title": "Right" },
+                { "const": "down", "title": "Down" }
+              ]
+            },
+            "options": {
+              "$ref": "#/definitions/options"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "options": {
+      "type": "object",
+      "properties": {
+        "rank": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

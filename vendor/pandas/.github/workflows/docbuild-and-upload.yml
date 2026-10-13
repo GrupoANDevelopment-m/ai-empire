@@ -1,0 +1,195 @@
+name: Doc Build and Upload
+
+on:
+  push:
+    branches:
+      - main
+      - 3.0.x
+    tags:
+      - '*'
+  pull_request:
+    branches:
+      - main
+      - 3.0.x
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'The pandas version to override'
+        required: false
+        type: string
+      publish_prod:
+        description: 'Publish to production'
+        type: boolean
+        default: false
+
+defaults:
+  run:
+    shell: bash -euox pipefail {0}
+
+permissions: {}
+
+jobs:
+  web_and_docs:
+    name: Doc Build and Upload
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+
+    concurrency:
+      # https://github.community/t/concurrecy-not-work-for-push/183068/7
+      group: ${{ github.event_name == 'push' && github.run_number || github.ref }}-web-docs
+      cancel-in-progress: true
+
+    steps:
+    - name: Set pandas version
+      env:
+        INPUT_VERSION: ${{ github.event.inputs.version }}
+        EVENT_NAME: ${{ github.event_name }}
+        INPUT_PUBLISH_PROD: ${{ github.event.inputs.publish_prod }}
+      run: |
+        # tags include a `v` prefix.
+        tag_version_pat="^v[0-9]+\.[0-9]+\.[0-9]+(rc[0-9]+)?$"
+        version_pat="^[0-9]+\.[0-9]+\.[0-9]+(rc[0-9]+)?$"
+
+        if [[ -n "$INPUT_VERSION" ]]; then
+          PANDAS_VERSION="$INPUT_VERSION"
+          echo "PANDAS_VERSION=$PANDAS_VERSION" >> "$GITHUB_ENV"
+        elif [[ "$EVENT_NAME" == "push" && "$GITHUB_REF_NAME" =~ $tag_version_pat ]]; then
+          PANDAS_VERSION="${GITHUB_REF_NAME:1}"
+          echo "PANDAS_VERSION=$PANDAS_VERSION" >> "$GITHUB_ENV"
+        else
+          PANDAS_VERSION=""
+        fi
+
+        if [[ "$EVENT_NAME" == "push" && -n "$PANDAS_VERSION" ]]; then
+          PUBLISH_PROD="true"
+        elif [[ "$INPUT_PUBLISH_PROD" == "true" ]]; then
+          PUBLISH_PROD="true"
+        else
+          PUBLISH_PROD="false"
+        fi
+        echo "PUBLISH_PROD=$PUBLISH_PROD" >> "$GITHUB_ENV"
+
+        if [[ "$PUBLISH_PROD" == "true" ]] &&
+           [[ ! "$PANDAS_VERSION" =~ $version_pat ]]
+        then
+          echo "Invalid version $PANDAS_VERSION for publishing to prod."
+          exit 1
+        fi
+
+        # Docs for all patch releases of a minor series are published under
+        # the same major.minor path, e.g. 3.0.5 -> pandas-docs/version/3.0
+        if [[ -n "$PANDAS_VERSION" ]]; then
+          PANDAS_DOCS_VERSION=$(echo "$PANDAS_VERSION" | grep -oE '^[0-9]+\.[0-9]+')
+          echo "PANDAS_DOCS_VERSION=$PANDAS_DOCS_VERSION" >> "$GITHUB_ENV"
+        fi
+
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Create virtual environment with Pixi
+      uses: ./.github/actions/setup-pixi
+      with:
+        environment: docs-and-web
+
+    - name: Build pandas
+      run: |
+        pixi run \
+          --environment docs-and-web \
+          build-pandas \
+          --editable \
+          -Csetup-args="--werror"
+
+    - name: Test website
+      run: |
+        pixi run \
+          ci-test-website
+
+    - name: Test build single page doc
+      run: |
+        pixi run \
+          ci-test-single-page-doc pandas.Series.value_counts
+        pixi run \
+          ci-test-single-page-doc pandas.Series.str.split
+
+    - name: Test nbconvert doc notebooks
+      run: |
+        pixi run \
+          ci-test-nbconvert-doc-notebooks "$(find doc/source -name '*.ipynb')"
+
+    - name: Build website
+      run: |
+        pixi run \
+          ci-build-website
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build documentation
+      run: |
+        pixi run \
+          ci-build-documentation \
+          html
+
+    - name: Build the interactive terminal
+      run: |
+        pixi run \
+          ci-build-interactive_terminal
+
+    - name: Build documentation zip
+      run: |
+        pixi run \
+          ci-build-documentation \
+          zip_html
+
+    - name: Copy cheatsheets into site directory
+      run: cp doc/cheatsheet/Pandas_Cheat_Sheet* web/build/
+
+    - name: Checkout pandas-dev.github.io
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: pandas-dev/pandas-dev.github.io
+        ssh-key: ${{ secrets.PANDAS_DEV_GITHUB_IO_DEPLOY_KEY }}
+        path: pandas-dev.github.io
+        persist-credentials: true
+      if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || env.PUBLISH_PROD == 'true'
+
+    - name: Upload web
+      run: rsync -a --delete --exclude='.git' --exclude='README.md' --exclude='CNAME' --exclude='.nojekyll' --exclude='pandas-docs' --exclude='docs' --exclude='benchmarks' web/build/ pandas-dev.github.io/
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    - name: Upload dev docs
+      run: rsync -a --delete doc/build/html/ pandas-dev.github.io/pandas-docs/dev
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    - name: Upload prod docs
+      run: rsync -a --delete doc/build/html/ pandas-dev.github.io/pandas-docs/version/${PANDAS_DOCS_VERSION}
+      if: env.PUBLISH_PROD == 'true'
+
+    - name: Commit and push to pandas-dev.github.io
+      working-directory: pandas-dev.github.io
+      env:
+        COMMIT_MSG: ${{ env.PUBLISH_PROD == 'true' && format('Update site for pandas {0} (pandas-dev/pandas@{1})', env.PANDAS_DOCS_VERSION, github.sha) || format('Update site from pandas-dev/pandas@{0}', github.sha) }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add -A
+        if git diff --cached --quiet; then
+          echo "No changes to publish"
+          exit 0
+        fi
+        git commit -m "${COMMIT_MSG}"
+        git push || (git pull --rebase && git push)
+      if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || env.PUBLISH_PROD == 'true'
+
+    - name: Move docs into site directory
+      run: mv doc/build/html web/build/docs
+
+    - name: Save website as an artifact
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: website
+        path: web/build
+        retention-days: 14

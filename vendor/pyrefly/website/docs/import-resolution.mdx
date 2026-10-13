@@ -1,0 +1,220 @@
+---
+title: Import Resolution
+slug: /import-resolution
+
+description: How imports in a given file are found by Pyrefly and their bindings are resolved, including files that are being type checked
+---
+
+{/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */}
+
+# Import Resolution
+
+This doc describes how imports in a given file are found within Pyrefly while performing
+a type check or resolving IDE language support operations.
+
+NOTE: see the [Configuration documentation](./configuration.mdx) for more info on
+the config options referenced below.
+
+## Relative Imports
+
+If the import is relative (starting with one or more dots), the import is
+resolved relative to the path of the file importing it. A single dot at the
+beginning of the import (e.g. `.file.to.import`) represents the current
+directory, and more dots (e.g. `..other.file`) will continue to walk upward.
+
+## Absolute Imports
+
+For absolute imports, Pyrefly searches for a match in each of the following groups. The
+matching process is explained in the next paragraph.
+
+1. Try to import from the search path. See the [search path section](#search-path) for more information.
+2. Try to import from `typeshed`.
+3. Try to import from the fallback search path. See the [fallback search path section](#fallback-search-path) for
+more information on the contents of the search path.
+4. Try to import from the site package path. See the
+[site package path section](#site-package-path) for more information on the contents
+of the site package path.
+5. Return an import error.
+
+When searching for a match in one of the above groups, Pyrefly performs the following process
+over two passes, one looking for stub *packages*, and the other looking for source *packages*. See
+[Stub Files vs Source Files](#stub-files-vs-source-files) for more information.
+
+1. Attempt to match each part of the name to directories in the group, selecting the first
+match that is found.
+2. If the result is a `.pyi` file or regular package (directory with an
+`__init__.py`/`__init__.pyi` file), return the result. Otherwise, keep searching and
+attempt to find a `.pyi` file or regular package.
+
+### Search Path
+
+The search path ([see `search-path` in configuration docs](configuration.mdx#search-path))
+consists of several entries representing project files.
+
+1. Search path from CLI args.
+2. Search path from config files.
+3. If [`disable-search-path-heuristics`](configuration.mdx#disable-search-path-heuristics)
+   is not set, Pyrefly appends an import root directory to the search path.
+
+The import root is:
+1. `src/` if there's a `src/` directory in the same directory as the config file.
+2. The parent directory (`..`) if there's an `__init__.py` or `__init__.pyi` in the same
+   directory as the config file.
+3. Otherwise, the directory containing the config file.
+
+### Fallback Search Path
+
+The fallback search path is a lower-precedence heuristic automatically constructed by
+Pyrefly when no Pyrefly config defines the project's import roots. For an inferred
+`src/` layout, it includes the project root so sibling directories such as `tests/`
+are importable without changing the primary `src/` import root. When Pyrefly cannot
+infer a project root, it instead searches the importing file's ancestors.
+It is only constructed when
+[`disable-search-path-heuristics`](configuration.mdx#disable-search-path-heuristics)
+is not set.
+
+For an unknown project root, the fallback search path consists of each directory from
+the directory containing a given file to the root of your filesystem. For example, if
+you have the following setup:
+
+```
+/
+|- projects/
+   |- project_a/
+   |  |- b/
+   |  |  |- c.py
+   |  |- d.py
+   |- project_e/
+      |- f.py
+```
+
+`c.py`'s fallback search path would be `['/projects/project_a/b', '/projects/project_a',
+'/projects', '/']`
+- `d.py` could be importable with the paths `d`, `project_a.d`, or `projects.project_a.d`.
+- `f.py` could be importable with the paths `project_e.f` or `projects.project_e.f`.
+
+`e.py`'s fallback search path would be `['/projects/project_a', '/projects', '/']`
+- `c.py` could be importable with the paths `b.c`, `project_a.b.c`, or `projects.project_a.b.c`
+- `f.py` could be importable with the paths `project_e.f` or `projects.project_e.f`
+
+`f.py`'s fallback search path would be `['/projects/project_e', '/projects', '/']`
+- `c.py` could be importable with the paths `project_a.b.c` or `projects.project_a.b.c`
+- `d.py` could be importable with the paths `project_a.d` or `projects.project_a.d`
+
+### Site Package Path
+
+The site package path
+([see `site-package-path` in configuration docs](configuration.mdx#site-package-path))
+contains roots from the configuration and the interpreter. Pyrefly uses these roots to
+resolve imports.
+
+1. Site package paths from a config file (if no CLI override is present) or CLI args.
+2. Filtered entries from a Python interpreter's `sys.path`, if Pyrefly finds an interpreter.
+   See [Environment Autoconfiguration](configuration.mdx#environment-autoconfiguration)
+   for more information on finding interpreters.
+
+## Stub Files vs Source Files
+
+A
+[stub file](https://typing.python.org/en/latest/spec/distributing.html#stub-files)
+is any file that ends with a `.pyi` file suffix. They have many uses, including
+adding typing to non-Python extension code, distributing typing information
+separate from implementation, or overriding an implementation with more accurate
+typing information.
+
+A stub package is a second package corresponding to a regular package, with `-stubs`
+appended to its name. A `-stubs` package should only include stub files (`.pyi`),
+which override any `.py` or `.pyi` files in the non-stubs package. These are preferred
+when available, since they contain the interfaces a library exposes to developers. An
+example of this includes the popular library [`pandas`](https://github.com/pandas-dev/pandas),
+and its stub package, [`pandas-stubs`](https://github.com/pandas-dev/pandas-stubs).
+
+When importing from a non-stubs package, Pyrefly loads typing information from
+imports by first searching for a relevant `-stubs` package, then by looking at
+the non-stubs package's `.pyi` files, then falls back to a `.py` file. See
+[Absolute Imports](#absolute-imports) for details on when non-stubs packages
+are allowed to be used for types, and how you can override that behavior.
+
+## Bundled Third Party Stubs
+
+Pyrefly bundles stubs for several popular third party libraries along with its binary which are
+used for type checking and IDE features. These bundled stubs have special import resolution rules which differ
+from how installed stubs might be treated. The decision tree below describes the scenarios in which third party stubs
+are used.
+
+
+```
+- Pyrefly config file present?
+   - Yes
+      - Is the package installed?
+         - Yes
+            - Are stubs installed by user?
+               - Yes
+                  Installed stubs are used.
+               - No
+                  UntypedImport error.
+         - No
+            MissingImport error.
+   - No
+      - Is the package installed?
+         - Yes
+            Bundled stubs used.
+         - No
+            MissingSourceForStubs error.
+```
+
+## Editable Installs
+
+When using static analysis tools with an editable install, the editable install should be configured to use `.pth`
+files that contain file paths (`/project/src/module`) rather than executable lines (started with `import`) that
+install import hooks. See [setuptools doc](https://setuptools.pypa.io/en/latest/userguide/development_mode.html)
+and [PEP 660](https://peps.python.org/pep-0660/) for more information.
+
+Import hooks can provide an editable installation that offers a more accurate representation of the actual installation
+environment. However, since resolving module locations through an import hook
+**requires executing Python code at runtime**, they are incompatible with Pyrefly and other static analysis tools that
+operate without code execution. Consequently, when an editable install is configured to use import hooks, Pyrefly
+will be unable to automatically locate and analyze the corresponding source files, resulting in incomplete type checking and
+code analysis.
+
+Setuptools build system uses import hooks by default for editable installations. To ensure compatibility between
+setuptools-based editable installs and Pyrefly, setuptools must be configured to use path-based `.pth` files instead.
+This configuration should be performed through the build frontend (such as `pip`) by specifying the appropriate
+options during installation or in the project's configuration files.
+
+### uv with setuptools
+
+When using [uv](https://docs.astral.sh/uv/) with setuptools, uv can be
+[configured](https://docs.astral.sh/uv/reference/settings/#config-settings) to avoid import hooks.
+
+NOTE: The `uv_build` backend always uses path-based `.pth` files.
+
+### pip with setuptools
+When using `pip` with setuptools-based projects, there are two ways to avoid import hooks:
+[compat mode](https://setuptools.pypa.io/en/latest/userguide/development_mode.html#legacy-behavior)
+and [strict mode](https://setuptools.pypa.io/en/latest/userguide/development_mode.html#strict-editable-installs).
+
+### Hatch / Hatchling
+
+[Hatchling](https://hatch.pypa.io/1.9/config/build/) uses path-based `.pth` files by default.
+It will only use import hooks if you set [`dev-mode-exact` to true](https://hatch.pypa.io/latest/config/build/#dev-mode).
+
+### PDM
+
+[PDM](https://backend.pdm-project.org/) uses path-based `.pth` files by default.
+It will only use import hooks if you set
+[`editable-backend` to "editables"](https://backend.pdm-project.org/build_config/#choose-the-editable-build-format).
+
+### Poetry / Poetry-core
+[Poetry-core](https://github.com/python-poetry/poetry-core) backend always uses path-based `.pth` files.
+
+## Debugging Import Issues
+
+Pyrefly has a `dump-config` command that dumps the import-related config options it is using for
+each file it is checking. To use it, simply replace `check` with `dump-config` in your
+command-line invocation.

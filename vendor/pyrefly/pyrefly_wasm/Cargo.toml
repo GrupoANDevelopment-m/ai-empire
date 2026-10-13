@@ -1,0 +1,32 @@
+[package]
+name = "pyrefly_wasm"
+version = "0.0.0"
+authors = ["Meta"]
+edition = "2024"
+repository = "https://github.com/facebook/pyrefly"
+license = "MIT"
+
+[lib]
+path = "lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[build-dependencies]
+tar = "0.4.44"
+zstd = { version = "0.13" }
+
+[dependencies]
+console_error_panic_hook = "0.1.2"
+dupe = "0.9.1"
+pyrefly = { path = "../pyrefly" }
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6.5"
+starlark_map = "0.14.2"
+wasm-bindgen = "0.2.95"
+getrandom_4 = { package = "getrandom", version = "0.4", default-features = false, features = ["wasm_js"] }
+getrandom_3_3 = { package = "getrandom", version = "0.3.3", default-features = false, features = ["wasm_js"] }
+getrandom_2_15 = { package = "getrandom", version = "0.2.16", default-features = false, features = ["js"] }
+uuid = { version = "1.17", features = ["rng-getrandom"] }
+zstd = { version = "0.13" }
+
+[lints]
+rust = { unexpected_cfgs = { check-cfg = ["cfg(fbcode_build)"], level = "warn" } }

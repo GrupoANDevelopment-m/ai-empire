@@ -1,0 +1,22 @@
+{
+  "name": "@jupyter-notebook/ui-tests",
+  "private": true,
+  "version": "0.1.0",
+  "author": "Project Jupyter",
+  "license": "BSD-3-Clause",
+  "description": "Jupyter Notebook UI Tests",
+  "scripts": {
+    "deduplicate": "jlpm dlx yarn-berry-deduplicate -s fewerHighest && jlpm install",
+    "rimraf": "rimraf",
+    "start": "jupyter notebook --config test/jupyter_server_config.py",
+    "test": "playwright test",
+    "test:debug": "PWDEBUG=1 playwright test",
+    "test:report": "http-server ./playwright-report -a localhost -o",
+    "test:update": "playwright test --update-snapshots"
+  },
+  "dependencies": {
+    "@jupyterlab/galata": "~5.7.0-alpha.2",
+    "@playwright/test": "^1.62.1",
+    "rimraf": "^3.0.2"
+  }
+}

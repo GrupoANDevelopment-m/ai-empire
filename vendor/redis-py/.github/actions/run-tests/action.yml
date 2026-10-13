@@ -1,0 +1,335 @@
+name: 'Run redis-py tests'
+description: 'Runs redis-py tests against different Redis versions and configurations'
+inputs:
+  python-version:
+    description: 'Python version to use for running tests'
+    default: '3.12'
+  parser-backend:
+    description: 'Parser backend to use: plain or hiredis'
+    required: true
+  redis-version:
+    description: 'Redis version to test against'
+    required: true
+  hiredis-version:
+    description: 'hiredis version to test against'
+    required: false
+    default: '>3.0.0'
+  hiredis-branch:
+    description: 'hiredis branch to test against'
+    required: false
+    default: 'master'
+  event-loop:
+    description: 'Event loop to use'
+    required: false
+    default: 'asyncio'
+  test-config:
+    description: |
+      Test configuration to run. Can be "all", "fixed-clients",
+      or "<protocol>-<response-shape>-<topology>", where protocol is
+      "default", "2", or "3", response-shape is "legacy_responses" or
+      "unified_responses", and topology is "standalone" or "cluster".
+      Legacy aliases like "2-standalone" are also accepted.
+    required: false
+    default: 'all'
+  run-multidb-integration:
+    description: |
+      When 'true', also run the MultiDBClient (active-active) integration tests
+      after the main test run. A second cluster (the docker "multidb" profile's
+      cluster2) is started so the client can front two real clusters, in
+      addition to the two standalone servers already up. Enabled for a single
+      existing matrix cell so no extra CI runners are added.
+    required: false
+    default: 'false'
+  repository:
+    description: 'Repository to checkout'
+    required: false
+  ref:
+    description: 'Branch to checkout'
+    required: false
+  client-libs-test-image:
+    description: 'Client libs test image tag'
+    required: false
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v6
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.ref }}
+
+    - uses: actions/setup-python@v7
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: 'pip'
+
+    - uses: actions/checkout@v6
+      if: ${{ inputs.parser-backend == 'hiredis' && inputs.hiredis-version == 'unstable' }}
+      with:
+        repository: redis/hiredis-py
+        submodules: true
+        path: hiredis-py
+        ref: ${{ inputs.hiredis-branch }}
+
+    - name: Setup Test environment
+      env:
+        REDIS_VERSION: ${{ inputs.redis-version }}
+        CLIENT_LIBS_TEST_IMAGE_TAG: ${{ inputs.client-libs-test-image || inputs.redis-version }}
+        CLIENT_LIBS_TEST_STACK_IMAGE_TAG: ${{ inputs.client-libs-test-image }}
+      run: |
+        set -e
+
+        echo "::group::Installing dependencies"
+        pip install -r dev_requirements.txt
+        pip uninstall -y redis  # uninstall Redis package installed via redis-entraid
+        pip install -e .[jwt]  # install the working copy
+        if [ "${{inputs.parser-backend}}" == "hiredis" ]; then
+          if [[ "${{inputs.hiredis-version}}" == "unstable" ]]; then
+            echo "Installing unstable version of hiredis from local directory"
+            pip install -e ./hiredis-py
+          else
+            pip install "hiredis${{inputs.hiredis-version}}"
+          fi
+          echo "PARSER_BACKEND=$(echo "${{inputs.parser-backend}}_${{inputs.hiredis-version}}" | sed 's/[^a-zA-Z0-9]/_/g')" >> $GITHUB_ENV
+        else
+          echo "PARSER_BACKEND=${{inputs.parser-backend}}" >> $GITHUB_ENV
+        fi
+        echo "::endgroup::"
+
+        echo "::group::Starting Redis servers"
+        # Check if REDIS_VERSION is in the custom map
+        mapped_version=""
+        echo "REDIS_VERSION_CUSTOM_MAP: ${REDIS_VERSION_CUSTOM_MAP:-}"
+        if [[ -n "${REDIS_VERSION_CUSTOM_MAP:-}" ]]; then
+          for mapping in $REDIS_VERSION_CUSTOM_MAP; do
+            echo "Checking mapping: $mapping"
+            version="${mapping%%:*}"
+            tag="${mapping##*:}"
+            echo "Using tag: $tag, version: $version"
+            if [[ "$REDIS_VERSION" == "$version" ]]; then
+              mapped_version="$version"
+              echo "Found custom mapping: $REDIS_VERSION -> $mapped_version -> $tag"
+              echo "Updating CLIENT_LIBS_TEST_IMAGE_TAG to $tag"
+              export CLIENT_LIBS_TEST_IMAGE_TAG=${tag}
+              break
+            fi
+          done
+        fi
+        # Use mapped version if found, otherwise use REDIS_VERSION
+        version_to_parse="${mapped_version:-$REDIS_VERSION}"
+        redis_major_version=$(echo "$version_to_parse" | grep -oP '^\d+')
+        echo "REDIS_MAJOR_VERSION=${redis_major_version}" >> $GITHUB_ENV
+
+        if (( redis_major_version < 8 )); then
+          echo "Using redis-stack for module tests"
+
+          # Mapping of redis version to stack version
+          declare -A redis_stack_version_mapping=(
+            ["7.4.9"]="rs-7.4.0-v8"
+            ["7.2.14"]="rs-7.2.0-v20"
+          )
+
+          if [[ -v redis_stack_version_mapping[$REDIS_VERSION] ]]; then
+            if [[ -z "${CLIENT_LIBS_TEST_STACK_IMAGE_TAG}" ]]; then
+              export CLIENT_LIBS_TEST_STACK_IMAGE_TAG=${redis_stack_version_mapping[$REDIS_VERSION]}
+            fi
+            echo "REDIS_MOD_URL=redis://127.0.0.1:6479/0" >> $GITHUB_ENV
+          else
+            echo "Version not found in the mapping."
+            exit 1
+          fi
+
+          if (( redis_major_version < 7 )); then
+            export REDIS_STACK_EXTRA_ARGS="--tls-auth-clients optional --save ''"
+            export REDIS_EXTRA_ARGS="--tls-auth-clients optional --save ''"
+          fi
+
+          invoke devenv --endpoints=all-stack
+
+        else
+          echo "Using redis CE for module tests"
+          if [[ -z "${CLIENT_LIBS_TEST_STACK_IMAGE_TAG}" ]]; then
+            export CLIENT_LIBS_TEST_STACK_IMAGE_TAG=$CLIENT_LIBS_TEST_IMAGE_TAG
+          fi
+          echo "REDIS_MOD_URL=redis://127.0.0.1:6379" >> $GITHUB_ENV
+          echo "Using CLIENT_LIBS_TEST_STACK_IMAGE_TAG=$CLIENT_LIBS_TEST_STACK_IMAGE_TAG"
+          echo "Using CLIENT_LIBS_TEST_IMAGE_TAG=$CLIENT_LIBS_TEST_IMAGE_TAG"
+          invoke devenv --endpoints all
+        fi
+
+        # Persist the resolved image tags so later steps start containers from
+        # the same Redis image as the rest of this environment. The
+        # multi-database integration step runs `docker compose up cluster2` in a
+        # fresh shell; without this it would fall back to compose's hard-coded
+        # default tag and could start the second cluster on a different Redis
+        # version than the first one.
+        echo "CLIENT_LIBS_TEST_IMAGE_TAG=${CLIENT_LIBS_TEST_IMAGE_TAG}" >> $GITHUB_ENV
+        echo "CLIENT_LIBS_TEST_STACK_IMAGE_TAG=${CLIENT_LIBS_TEST_STACK_IMAGE_TAG}" >> $GITHUB_ENV
+
+        sleep 10 # time to settle
+        echo "::endgroup::"
+      shell: bash
+
+    - name: Run tests
+      env:
+        # Coverage on PyPy falls back to the pure-Python tracer, which slows the
+        # suite down several times (much more on PyPy 8.0, where reading
+        # frame.f_lineno inside a trace function is slow). PyPy runs exercise
+        # no code paths the CPython jobs miss, so they skip coverage.
+        PYTEST_ADDOPTS: ${{ startsWith(inputs.python-version, 'pypy') && '--no-cov' || '' }}
+      run: |
+        set -e
+
+        run_tests() {
+          local test_config=$1
+          local eventloop=""
+          local protocol_label=""
+          local response_shape_label=""
+          local test_type=""
+          local extra=""
+          local protocol_arg=""
+          local legacy_arg=""
+          local protocol_group=""
+          local response_group=""
+
+          if [ "${{inputs.event-loop}}" == "uvloop" ]; then
+            eventloop="--uvloop"
+          fi
+
+          echo "REDIS_MOD_URL=${REDIS_MOD_URL}"
+
+          if [ "$test_config" == "fixed-clients" ]; then
+            echo "::group::Fixed client tests"
+            echo "Running fixed client tests - in those tests client instance and configuration is fixed and not changed by pytest configuration"
+            invoke fixed-client-tests $eventloop
+            echo "::endgroup::"
+          else
+            IFS='-' read -r protocol_label response_shape_label test_type extra <<< "$test_config"
+            if [ -n "$extra" ]; then
+              echo "Invalid test configuration: ${test_config}"
+              exit 1
+            fi
+            if [ -z "$test_type" ]; then
+              # Backward-compatible support for old labels such as
+              # "2-standalone"; they always meant legacy responses.
+              test_type="$response_shape_label"
+              response_shape_label="legacy_responses"
+            fi
+
+            if [ "$protocol_label" == "default" ]; then
+              protocol_group="default RESP"
+            elif [ "$protocol_label" == "2" ] || [ "$protocol_label" == "3" ]; then
+              protocol_arg="--protocol=${protocol_label}"
+              protocol_group="RESP${protocol_label}"
+            else
+              echo "Unknown protocol label: ${protocol_label}"
+              exit 1
+            fi
+
+            if [ "$response_shape_label" == "legacy_responses" ]; then
+              legacy_arg="--legacy-responses"
+              response_group="legacy responses"
+            elif [ "$response_shape_label" == "unified_responses" ]; then
+              legacy_arg="--no-legacy-responses"
+              response_group="unified responses"
+            else
+              echo "Unknown response-shape label: ${response_shape_label}"
+              exit 1
+            fi
+
+            if [ "$test_type" == "standalone" ]; then
+              echo "::group::${protocol_group} standalone tests (${response_group})"
+              invoke standalone-tests --redis-mod-url=${REDIS_MOD_URL} $eventloop ${protocol_arg} ${legacy_arg}
+              echo "::endgroup::"
+            elif [ "$test_type" == "cluster" ]; then
+              echo "::group::${protocol_group} cluster tests (${response_group})"
+              invoke cluster-tests $eventloop ${protocol_arg} ${legacy_arg}
+              echo "::endgroup::"
+            else
+              echo "Unknown test type: ${test_type}"
+              exit 1
+            fi
+          fi
+        }
+
+        if [ "${{inputs.test-config}}" == "all" ]; then
+          for test_config in \
+            fixed-clients \
+            default-legacy_responses-standalone \
+            default-legacy_responses-cluster \
+            default-unified_responses-standalone \
+            default-unified_responses-cluster \
+            2-legacy_responses-standalone \
+            2-legacy_responses-cluster \
+            2-unified_responses-standalone \
+            2-unified_responses-cluster \
+            3-legacy_responses-standalone \
+            3-legacy_responses-cluster \
+            3-unified_responses-standalone \
+            3-unified_responses-cluster
+          do
+            run_tests "${test_config}"
+          done
+        else
+          run_tests "${{inputs.test-config}}"
+        fi
+      shell: bash
+
+    - name: Run multi-database integration tests
+      # Folded into an existing matrix cell (see the `tests` job) so no extra CI
+      # runners are added. Brings up the second cluster (cluster2) on top of the
+      # already-running environment, then runs the MultiDBClient integration
+      # tests against two clusters and two standalone servers.
+      if: ${{ inputs.run-multidb-integration == 'true' }}
+      run: |
+        set -e
+
+        echo "::group::Starting second cluster (cluster2)"
+        # `--wait` blocks until cluster2's healthcheck reports healthy
+        # (cluster_state:ok) and fails fast if it becomes unhealthy or exits, so
+        # the tests never run against a cluster that did not actually form.
+        if ! docker compose up -d --wait --wait-timeout 120 cluster2; then
+          echo "::error::cluster2 did not become healthy; aborting before running the multi-database integration tests."
+          docker compose logs --no-color --tail 100 cluster2 || true
+          echo "::endgroup::"
+          exit 1
+        fi
+        echo "::endgroup::"
+
+        eventloop=""
+        if [ "${{inputs.event-loop}}" == "uvloop" ]; then
+          eventloop="--uvloop"
+        fi
+
+        echo "::group::Multi-database integration tests"
+        echo "Running MultiDBClient integration tests against two real Redis deployments (double-cluster and double-standalone)"
+        invoke multidb-integration-tests $eventloop
+        echo "::endgroup::"
+      shell: bash
+
+    - name: Debug
+      if: failure()
+      run: |
+        sudo apt-get install -y redis-tools
+        echo "Docker Containers:"
+        docker ps
+        echo "Cluster nodes:"
+        redis-cli -p 16379 CLUSTER NODES
+      shell: bash
+
+    - name: Upload test results and profiling data
+      uses: actions/upload-artifact@v7
+      with:
+        name: pytest-results-redis_${{inputs.redis-version}}-python_${{inputs.python-version}}-parser_${{env.PARSER_BACKEND}}-el_${{inputs.event-loop}}-config_${{inputs.test-config}}
+        path: |
+          junit-results/*-results.xml
+          prof/**
+          profile_output*
+        if-no-files-found: error
+        retention-days: 10
+
+    - name: Upload codecov coverage
+      # PyPy runs skip coverage (see the "Run tests" step), so there is nothing to upload.
+      if: ${{ !startsWith(inputs.python-version, 'pypy') }}
+      uses: codecov/codecov-action@v6
+      with:
+        fail_ci_if_error: false

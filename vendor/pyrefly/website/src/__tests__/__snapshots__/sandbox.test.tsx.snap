@@ -1,0 +1,191 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Sandbox Component render sandbox correctly 1`] = `
+<div>
+  <div
+    id="sandbox-editor"
+  >
+    <div>
+      <div>
+        <button>
+          sandbox.py
+        </button>
+      </div>
+      <div>
+        <button>
+          pyrefly.toml
+        </button>
+      </div>
+      <div>
+        <button
+          disabled=""
+          title="Cannot delete sandbox.py"
+        >
+          ×
+        </button>
+        <button
+          title="Add new file"
+        >
+          +
+        </button>
+      </div>
+      <label>
+        <input
+          id="parameter-hints-toggle"
+          type="checkbox"
+        />
+        Parameter hints
+      </label>
+    </div>
+    <div>
+      <div
+        id="sandbox-code-editor-container"
+      >
+        <div
+          data-language="python"
+          data-value="from typing import *
+
+def test(x: int):
+    return x + 1
+
+reveal_type(test(42))
+"
+          id="monaco-editor"
+        >
+          <div>
+            Monaco Editor (Path: sandbox.py)
+          </div>
+          <textarea
+            id="editor-textarea"
+            readonly=""
+            style="width: 100%; height: 200px;"
+          >
+            from typing import *
+
+def test(x: int):
+    return x + 1
+
+reveal_type(test(42))
+
+          </textarea>
+        </div>
+        <div>
+          <button
+            aria-label="run Python code button"
+            id="run-python-button"
+          >
+            <span>
+              ▶️ Run
+            </span>
+          </button>
+          <button
+            aria-label="share URL button"
+            id="share-url-button"
+          >
+            <span>
+              📋 Share URL
+            </span>
+          </button>
+          <button
+            aria-label="reset to default code"
+            id="reset-button"
+          >
+            <span>
+              🔄 Reset
+            </span>
+          </button>
+          <button
+            aria-label="report issue on GitHub"
+            id="github-issues-button"
+          >
+            <span>
+              ⚠️ Report Issue
+            </span>
+          </button>
+        </div>
+      </div>
+      <div />
+      <div
+        id="sandbox-results-container"
+      >
+        <div>
+          <ul>
+            <li>
+              Type Checking Errors
+            </li>
+            <li>
+              Runtime Output
+            </li>
+          </ul>
+        </div>
+        <div>
+          <pre>
+            <ul>
+              <li>
+                No errors!
+              </li>
+            </ul>
+          </pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`Sandbox Component renders in code snippet mode without error panel 1`] = `
+<div>
+  <div
+    id="sandbox-editor"
+  >
+    <div>
+      <div
+        id="sandbox-code-editor-container"
+      >
+        <div
+          data-language="python"
+          data-value="def hello(): pass"
+          id="monaco-editor"
+        >
+          <div>
+            Monaco Editor (Path: snippet.py)
+          </div>
+          <textarea
+            id="editor-textarea"
+            readonly=""
+            style="width: 100%; height: 200px;"
+          >
+            def hello(): pass
+          </textarea>
+        </div>
+        <div>
+          <button
+            aria-label="open in sandbox"
+            id="open-sandbox-button"
+          >
+            <span>
+              🧪 Open in Sandbox
+            </span>
+          </button>
+          <button
+            aria-label="copy code to clipboard"
+            id="copy-code-button"
+          >
+            <span>
+              📋 Copy
+            </span>
+          </button>
+          <button
+            aria-label="reset to default code"
+            id="reset-button"
+          >
+            <span>
+              🔄 Reset
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+`;

@@ -1,0 +1,32 @@
+---
+title: Infer
+
+description: Automatically add type annotations to your code with the Pyrefly infer feature.
+---
+
+{/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */}
+
+# Pyrefly Infer
+
+Manually adding type annotations to your code can be tedius and time-consuming. Pyrefly can help with this task by automatically adding type annotations to your code.
+
+This feature is currently under active development, and the following sections will be updated as the feature matures. We currently recommend manually reviewing the changes created by `pyrefly infer`
+
+## Usage
+
+To use the infer feature, run the following command in your project directory:
+
+```
+pyrefly infer path/to/file.py
+# or
+pyrefly infer path/to/directory/
+```
+
+We recommend running it in small batches to make reviewing and merging changes easier. Flags can be used to turn on / off adding annotations for parameters, return types, and containers.
+
+It is common that new annotations will expose new type errors. See our error suppression guides to learn how to automate silencing these errors.

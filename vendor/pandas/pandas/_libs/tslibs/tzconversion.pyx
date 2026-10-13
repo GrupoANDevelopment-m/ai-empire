@@ -1,0 +1,986 @@
+"""
+timezone conversion
+"""
+cimport cython
+from datetime import timezone
+
+from cpython.datetime cimport (
+    PyDelta_Check,
+    datetime,
+    datetime_new,
+    import_datetime,
+    timedelta,
+    tzinfo,
+)
+from cython cimport Py_ssize_t
+
+import_datetime()
+
+import numpy as np
+
+cimport numpy as cnp
+from numpy cimport (
+    int64_t,
+    intp_t,
+    ndarray,
+    uint8_t,
+)
+
+cnp.import_array()
+
+from pandas._libs.tslibs.dtypes cimport (
+    periods_per_day,
+    periods_per_second,
+)
+from pandas._libs.tslibs.nattype cimport NPY_NAT
+from pandas._libs.tslibs.np_datetime cimport (
+    NPY_DATETIMEUNIT,
+    dts_to_iso_string,
+    import_pandas_datetime,
+    npy_datetimestruct,
+    pandas_datetime_to_datetimestruct,
+)
+
+import_pandas_datetime()
+
+from pandas._libs.portable cimport (
+    checked_add,
+    checked_sub,
+)
+from pandas._libs.tslibs.timestamps cimport _Timestamp
+from pandas._libs.tslibs.timezones cimport (
+    get_dst_info,
+    is_fixed_offset,
+    is_tzlocal,
+    is_utc,
+)
+
+
+cdef const int64_t[::1] _deltas_placeholder = np.array([], dtype=np.int64)
+
+
+@cython.freelist(16)
+@cython.final
+cdef class Localizer:
+    # cdef:
+    #    tzinfo tz
+    #    NPY_DATETIMEUNIT _creso
+    #    bint use_utc, use_fixed, use_tzlocal, use_dst, use_pytz, use_zoneinfo
+    #    bint has_tz_rule
+    #    ndarray trans
+    #    Py_ssize_t ntrans
+    #    const int64_t[::1] deltas
+    #    int64_t delta
+    #    int64_t* tdata
+    #    int64_t last_trans
+
+    @cython.initializedcheck(False)
+    @cython.wraparound(False)
+    @cython.boundscheck(False)
+    def __cinit__(self, tzinfo tz, NPY_DATETIMEUNIT creso):
+        self.tz = tz
+        self._creso = creso
+        self.use_utc = self.use_tzinfo_api = self.use_fixed = False
+        self.use_dst = self.use_pytz = self.use_zoneinfo = False
+        self.has_tz_rule = False
+        self.ntrans = -1  # placeholder
+        self.delta = -1  # placeholder
+        self.last_trans = -1  # placeholder
+        self.deltas = _deltas_placeholder
+        self.tdata = NULL
+
+        if is_utc(tz) or tz is None:
+            self.use_utc = True
+
+        elif is_tzlocal(tz):
+            self.use_tzinfo_api = True
+
+        else:
+            trans, deltas, typ, has_tz_rule = get_dst_info(tz)
+            if creso != NPY_DATETIMEUNIT.NPY_FR_ns:
+                # NB: using floordiv here is implicitly assuming we will
+                #  never see trans or deltas that are not an integer number
+                #  of seconds.
+                # TODO: avoid these np.array calls
+                if creso == NPY_DATETIMEUNIT.NPY_FR_us:
+                    divisor = 1_000
+                elif creso == NPY_DATETIMEUNIT.NPY_FR_ms:
+                    divisor = 1_000_000
+                elif creso == NPY_DATETIMEUNIT.NPY_FR_s:
+                    divisor = 1_000_000_000
+                else:
+                    raise NotImplementedError(creso)
+
+                trans = np.array(trans)
+                # trans[0] is the NPY_NAT+1 "beginning of time" sentinel; a
+                #  plain floordiv would scale it up to a real (~1677) value,
+                #  mislocalizing earlier timestamps, so preserve it exactly.
+                trans_sentinel = trans == NPY_NAT + 1
+                trans = trans // divisor
+                trans[trans_sentinel] = NPY_NAT + 1
+                deltas = np.array(deltas) // divisor
+
+            self.trans = trans
+            self.ntrans = self.trans.shape[0]
+            self.deltas = deltas
+            self.has_tz_rule = has_tz_rule
+            # since we are sometimes comparing local times with UTC transitions,
+            # subtract 12 hours (12 * 60 * 60) to be safe
+            # (i.e. ensure to use correct but slower path around the last transition)
+            if has_tz_rule:
+                self.last_trans = (
+                    trans[self.ntrans - 1] - (43200 * periods_per_second(creso))
+                )
+
+            if typ != "pytz" and typ != "dateutil" and typ != "zoneinfo":
+                # static/fixed; in this case we know that len(delta) == 1
+                self.use_fixed = True
+                self.delta = deltas[0]
+            else:
+                self.use_dst = True
+                if typ == "pytz":
+                    self.use_pytz = True
+                elif typ == "zoneinfo":
+                    self.use_zoneinfo = True
+                self.tdata = <int64_t*>cnp.PyArray_DATA(trans)
+
+    @cython.wraparound(False)
+    @cython.boundscheck(False)
+    cdef int64_t utc_val_to_local_val(
+        self, int64_t utc_val, Py_ssize_t* pos, bint* fold=NULL
+    ) except? -1:
+        cdef:
+            int64_t delta, result
+
+        if self.use_utc:
+            return utc_val
+        elif self.use_fixed:
+            delta = self.delta
+        elif self.use_tzinfo_api or (
+            self.use_zoneinfo
+            and self.has_tz_rule
+            and utc_val > self.last_trans
+        ):
+            delta = _tz_localize_using_tzinfo_api(
+                utc_val, self.tz, to_utc=False, creso=self._creso, fold=fold
+            )
+        else:
+            pos[0] = bisect_right_i8(self.tdata, utc_val, self.ntrans) - 1
+            if fold is not NULL:
+                fold[0] = _infer_dateutil_fold(
+                    utc_val, self.trans, self.deltas, pos[0]
+                )
+
+            delta = self.deltas[pos[0]]
+
+        # GH#66550 the shift out of UTC must not wrap int64 silently; the wrapped
+        #  value renders as a wall time centuries away and is stored as such by
+        #  tz_localize(None) and floor/ceil/round.  The scalar path already
+        #  refuses the same conversion via conversion.check_overflows.
+        # NB: landing exactly on the NaT sentinel is *not* rejected here.  That
+        #  value still renders the correct wall time, so it is only unusable for
+        #  the callers that store it back into an i8 buffer; those check for it
+        #  themselves.
+        if checked_add(utc_val, delta, &result):
+            raise_out_of_bounds(
+                utc_val,
+                BS_OVERFLOW if delta > 0 else BS_UNDERFLOW,
+                self._creso,
+                self.tz,
+            )
+        return result
+
+
+cdef int64_t tz_localize_to_utc_single(
+    int64_t val,
+    tzinfo tz,
+    object ambiguous=None,
+    object nonexistent=None,
+    NPY_DATETIMEUNIT creso=NPY_DATETIMEUNIT.NPY_FR_ns,
+) except? -1:
+    """See tz_localize_to_utc.__doc__"""
+    cdef:
+        int64_t delta
+        int64_t[::1] deltas
+
+    if val == NPY_NAT:
+        return val
+
+    elif is_utc(tz) or tz is None:
+        return val
+
+    elif is_tzlocal(tz):
+        delta = _tz_localize_using_tzinfo_api(val, tz, to_utc=True, creso=creso)
+        return _shift_to_utc(val, delta, creso)
+
+    elif type(tz) is timezone:
+        # i.e. a datetime.timezone fixed offset; get the offset directly
+        #  instead of going through get_dst_info
+        delta = int(tz.utcoffset(None).total_seconds()) * periods_per_second(creso)
+        return _shift_to_utc(val, delta, creso)
+
+    elif is_fixed_offset(tz):
+        _, deltas, _, _ = get_dst_info(tz)
+        delta = deltas[0]
+        # TODO: de-duplicate with Localizer.__init__
+        if creso != NPY_DATETIMEUNIT.NPY_FR_ns:
+            if creso == NPY_DATETIMEUNIT.NPY_FR_us:
+                delta = delta // 1000
+            elif creso == NPY_DATETIMEUNIT.NPY_FR_ms:
+                delta = delta // 1_000_000
+            elif creso == NPY_DATETIMEUNIT.NPY_FR_s:
+                delta = delta // 1_000_000_000
+
+        return _shift_to_utc(val, delta, creso)
+
+    else:
+        return tz_localize_to_utc(
+            np.array([val], dtype="i8"),
+            tz,
+            ambiguous=ambiguous,
+            nonexistent=nonexistent,
+            creso=creso,
+        )[0]
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def tz_localize_to_utc(
+    ndarray[int64_t] vals,
+    tzinfo tz,
+    object ambiguous=None,
+    object nonexistent=None,
+    NPY_DATETIMEUNIT creso=NPY_DATETIMEUNIT.NPY_FR_ns,
+):
+    """
+    Localize tzinfo-naive i8 to given time zone. If
+    there are ambiguities in the values, raise ValueError.
+
+    Parameters
+    ----------
+    vals : ndarray[int64_t]
+    tz : tzinfo or None
+    ambiguous : str, bool, or arraylike
+        When clocks moved backward due to DST, ambiguous times may arise.
+        For example in Central European Time (UTC+01), when going from 03:00
+        DST to 02:00 non-DST, 02:30:00 local time occurs both at 00:30:00 UTC
+        and at 01:30:00 UTC. In such a situation, the `ambiguous` parameter
+        dictates how ambiguous times should be handled.
+
+        - 'infer' will attempt to infer fall dst-transition hours based on
+          order. Requires that the timestamps are monotonically increasing.
+        - bool-ndarray where True signifies a DST time, False signifies a
+          non-DST time (note that this flag is only applicable for ambiguous
+          times, but the array must have the same length as vals)
+        - bool if True, treat all vals as DST. If False, treat them as non-DST
+        - 'NaT' will return NaT where there are ambiguous times
+
+    nonexistent : {None, "NaT", "shift_forward", "shift_backward", "raise", \
+timedelta-like}
+        How to handle non-existent times when converting wall times to UTC
+    creso : NPY_DATETIMEUNIT, default NPY_FR_ns
+
+    Returns
+    -------
+    localized : ndarray[int64_t]
+    """
+
+    if tz is None or is_utc(tz) or vals.size == 0:
+        # Fastpath, avoid overhead of creating Localizer
+        return vals.copy()
+
+    cdef:
+        ndarray[uint8_t, cast=True] ambiguous_array
+        Py_ssize_t i, n = vals.shape[0]
+        Py_ssize_t delta_idx_offset, delta_idx
+        int64_t v, left, right, val, new_local, remaining_mins
+        int64_t first_delta, delta
+        int64_t shift_delta = 0
+        ndarray[int64_t] result_a, result_b, dst_hours
+        int64_t[::1] result
+        bint infer_dst = False, is_dst = False, fill = False
+        bint shift_forward = False, shift_backward = False
+        bint fill_nonexist = False
+        str stamp
+        Localizer info = Localizer(tz, creso=creso)
+        int64_t pph = periods_per_day(creso) // 24
+
+    # Vectorized version of DstTzInfo.localize
+
+    # silence false-positive compiler warning
+    ambiguous_array = np.empty(0, dtype=bool)
+    if isinstance(ambiguous, str):
+        if ambiguous == "infer":
+            infer_dst = True
+        elif ambiguous == "NaT":
+            fill = True
+    elif isinstance(ambiguous, bool):
+        is_dst = True
+        if ambiguous:
+            ambiguous_array = np.ones(len(vals), dtype=bool)
+        else:
+            ambiguous_array = np.zeros(len(vals), dtype=bool)
+    elif hasattr(ambiguous, "__iter__"):
+        is_dst = True
+        if len(ambiguous) != len(vals):
+            raise ValueError("Length of ambiguous bool-array must be "
+                             "the same size as vals")
+        ambiguous_array = np.asarray(ambiguous, dtype=bool)
+
+    if nonexistent == "NaT":
+        fill_nonexist = True
+    elif nonexistent == "shift_forward":
+        shift_forward = True
+    elif nonexistent == "shift_backward":
+        shift_backward = True
+    elif PyDelta_Check(nonexistent):
+        from .timedeltas import delta_to_nanoseconds
+        shift_delta = delta_to_nanoseconds(nonexistent, reso=creso)
+    # `is not None` rather than `in (..., None)`: comparing an object against
+    # Py_None trips GCC -Warray-bounds in Cython's inline compare helper (GH#66939)
+    elif nonexistent is not None and nonexistent != "raise":
+        msg = ("nonexistent must be one of {'NaT', 'raise', 'shift_forward', "
+               "'shift_backward'} or a timedelta object")
+        raise ValueError(msg)
+
+    result = cnp.PyArray_EMPTY(vals.ndim, vals.shape, cnp.NPY_INT64, 0)
+
+    # NB: both loops below shift via _shift_to_utc rather than a bare subtraction,
+    #  matching the scalar tz_localize_to_utc_single; without it a wall time whose
+    #  UTC instant is out of bounds wraps int64 silently.  Landing exactly on the
+    #  NaT sentinel is out of bounds too, but _shift_to_utc cannot reject it there:
+    #  the Timestamp(..., tz=) constructor shares that helper and relies on catching
+    #  the sentinel downstream to keep its own error message.
+    if info.use_tzinfo_api:
+        for i in range(n):
+            v = vals[i]
+            if v == NPY_NAT:
+                result[i] = NPY_NAT
+            else:
+                delta = _tz_localize_using_tzinfo_api(
+                    v, tz, to_utc=True, creso=creso
+                )
+                result[i] = _shift_to_utc(v, delta, creso)
+                if result[i] == NPY_NAT:
+                    raise_out_of_bounds(v, BS_UNDERFLOW, creso)
+        return result.base  # to return underlying ndarray
+
+    elif info.use_fixed:
+        delta = info.delta
+        for i in range(n):
+            v = vals[i]
+            if v == NPY_NAT:
+                result[i] = NPY_NAT
+            else:
+                result[i] = _shift_to_utc(v, delta, creso)
+                if result[i] == NPY_NAT:
+                    raise_out_of_bounds(v, BS_UNDERFLOW, creso)
+        return result.base  # to return underlying ndarray
+
+    # Determine whether each date lies left of the DST transition (store in
+    # result_a) or right of the DST transition (store in result_b)
+    result_a, result_b = _get_utc_bounds(vals, info)
+
+    # silence false-positive compiler warning
+    dst_hours = np.empty(0, dtype=np.int64)
+    if infer_dst:
+        dst_hours = _get_dst_hours(vals, result_a, result_b, creso=creso)
+
+    # Pre-compute delta_idx_offset that will be used if we go down non-existent
+    #  paths.
+    # Shift the delta_idx by if the UTC offset of
+    # the target tz is greater than 0 and we're moving forward
+    # or vice versa
+    # TODO: delta_idx_offset and info.deltas are needed for zoneinfo timezones,
+    # but are not applicable for all timezones. Setting the former to 0 and
+    # length checking the latter avoids UB, but this could use a larger refactor
+    delta_idx_offset = 0
+    if len(info.deltas):
+        first_delta = info.deltas[0]
+        if (shift_forward or shift_delta > 0) and first_delta > 0:
+            delta_idx_offset = 1
+        elif (shift_backward or shift_delta < 0) and first_delta < 0:
+            delta_idx_offset = 1
+
+    for i in range(n):
+        val = vals[i]
+        left = result_a[i]
+        right = result_b[i]
+        if val == NPY_NAT:
+            # TODO: test with non-nano
+            result[i] = val
+        elif left != NPY_NAT and right != NPY_NAT:
+            if left == right:
+                # TODO: test with non-nano
+                result[i] = left
+            else:
+                if infer_dst and dst_hours[i] != NPY_NAT:
+                    # TODO: test with non-nano
+                    result[i] = dst_hours[i]
+                elif is_dst:
+                    if ambiguous_array[i]:
+                        result[i] = left
+                    else:
+                        result[i] = right
+                elif fill:
+                    # TODO: test with non-nano; parametrize test_dt_round_tz_ambiguous
+                    result[i] = NPY_NAT
+                else:
+                    stamp = _render_tstamp(val, creso=creso)
+                    raise ValueError(
+                        f"Cannot infer dst time from {stamp}, try using the "
+                        "'ambiguous' argument"
+                    )
+        elif left != NPY_NAT:
+            result[i] = left
+        elif right != NPY_NAT:
+            # TODO: test with non-nano
+            result[i] = right
+        else:
+            # Handle nonexistent times
+            if shift_forward or shift_backward or shift_delta != 0:
+                # Shift the nonexistent time to the closest existing time
+                remaining_mins = val % pph
+                if shift_delta != 0:
+                    # Validate that we don't relocalize on another nonexistent
+                    # time
+                    if -remaining_mins <= shift_delta < pph - remaining_mins:
+                        raise ValueError(
+                            "The provided timedelta will relocalize on a "
+                            f"nonexistent time: {nonexistent}"
+                        )
+                    if checked_add(val, shift_delta, &new_local):
+                        raise_out_of_bounds(
+                            val,
+                            BS_OVERFLOW if shift_delta > 0 else BS_UNDERFLOW,
+                            creso,
+                        )
+                elif shift_forward:
+                    new_local = val + (pph - remaining_mins)
+                else:
+                    # Subtract 1 since the beginning hour is _inclusive_ of
+                    # nonexistent times
+                    new_local = val - remaining_mins - 1
+
+                if (
+                    info.use_zoneinfo
+                    and info.has_tz_rule
+                    and new_local > info.last_trans
+                ):
+                    if shift_forward or shift_delta > 0:
+                        delta = _tz_localize_using_tzinfo_api(
+                            new_local, tz, True, creso, NULL, 0
+                        )
+                    else:
+                        delta = _tz_localize_using_tzinfo_api(
+                            new_local, tz, True, creso, NULL, 1
+                        )
+                    result[i] = _shift_to_utc(new_local, delta, creso)
+                else:
+                    delta_idx = bisect_right_i8(info.tdata, new_local, info.ntrans)
+                    if delta_idx == info.ntrans:
+                        # new_local is past the last cached transition, so the
+                        #  offsets below would index deltas (length ntrans) out
+                        #  of bounds. The bisect compared a *local* time against
+                        #  info.tdata, which holds *UTC* instants, so the last
+                        #  delta can put us back before its own transition;
+                        #  walk back to the last one that does not.
+                        delta_idx = info.ntrans - 1
+                        while (
+                            delta_idx > 0
+                            and _shift_to_utc(new_local, info.deltas[delta_idx], creso)
+                            < info.tdata[delta_idx]
+                        ):
+                            delta_idx -= 1
+                    # Logic similar to the precompute section. But check the current
+                    # delta in case we are moving between UTC+0 and non-zero timezone
+                    elif (
+                        (shift_forward or shift_delta > 0)
+                        and info.deltas[delta_idx - 1] >= 0
+                    ):
+                        delta_idx = delta_idx - 1
+                    else:
+                        delta_idx = delta_idx - delta_idx_offset
+                    delta = info.deltas[delta_idx]
+                    result[i] = _shift_to_utc(new_local, delta, creso)
+                if result[i] == NPY_NAT:
+                    raise_out_of_bounds(
+                        new_local,
+                        BS_UNDERFLOW if delta > 0 else BS_OVERFLOW,
+                        creso,
+                    )
+            elif fill_nonexist:
+                result[i] = NPY_NAT
+            else:
+                stamp = _render_tstamp(val, creso=creso)
+                raise ValueError(
+                    f"{stamp} is a nonexistent time due to daylight savings time. "
+                    "Try using the 'nonexistent' argument."
+                )
+
+    return result.base  # .base to get underlying ndarray
+
+
+cdef Py_ssize_t bisect_right_i8(
+    const int64_t *data,
+    int64_t val,
+    Py_ssize_t n
+) noexcept:
+    # Caller is responsible for checking n > 0
+    # This looks very similar to local_search_right in the ndarray.searchsorted
+    #  implementation.
+    cdef:
+        Py_ssize_t pivot, left = 0, right = n
+
+    # edge cases
+    if val > data[n - 1]:
+        return n
+
+    # Caller is responsible for ensuring 'val >= data[0]'. This is
+    #  ensured by the fact that 'data' comes from get_dst_info where data[0]
+    #  is *always* NPY_NAT+1. If that ever changes, we will need to restore
+    #  the following disabled check.
+    # if val < data[0]:
+    #    return 0
+
+    while left < right:
+        pivot = left + (right - left) // 2
+
+        if data[pivot] <= val:
+            left = pivot + 1
+        else:
+            right = pivot
+
+    return left
+
+
+cdef str _render_tstamp(int64_t val, NPY_DATETIMEUNIT creso):
+    """ Helper function to render exception messages"""
+    from pandas._libs.tslibs.timestamps import Timestamp
+    ts = Timestamp._from_value_and_reso(val, creso, None)
+    return str(ts)
+
+
+cdef void raise_out_of_bounds(
+    int64_t val,
+    BoundaryStatus err,
+    NPY_DATETIMEUNIT creso,
+    tzinfo to_tz=None,
+) except *:
+    cdef:
+        npy_datetimestruct dts
+    # Tries to match the error reported by [check_overflows]
+
+    from pandas._libs.tslibs.np_datetime import OutOfBoundsDatetime
+    from pandas._libs.tslibs.timestamps import Timestamp
+
+    pandas_datetime_to_datetimestruct(val, creso, &dts)
+    fmt = dts_to_iso_string(&dts)
+    # Going UTC->local the only value left to render is the in-bounds UTC
+    #  instant, so without naming the target tz the message looks like it is
+    #  complaining about a value that is plainly fine.
+    target = "" if to_tz is None else f" to {to_tz}"
+
+    if err == BS_OVERFLOW:
+        limit_ts = (<_Timestamp>Timestamp(0))._as_creso(creso).max
+        raise OutOfBoundsDatetime(
+            f"Converting {fmt}{target} overflows past {limit_ts}"
+        )
+    else:
+        limit_ts = (<_Timestamp>Timestamp(0))._as_creso(creso).min
+        raise OutOfBoundsDatetime(
+            f"Converting {fmt}{target} underflows past {limit_ts}"
+        )
+
+
+cdef int64_t _shift_to_utc(
+    int64_t val, int64_t delta, NPY_DATETIMEUNIT creso
+) except? -1:
+    # GH#65353 the fixed-offset shift to UTC (val - delta) must not wrap int64
+    # silently; raise OutOfBoundsDatetime, matching to_datetime, when the UTC
+    # value would leave the representable datetime64 range.
+    cdef int64_t result
+    if checked_sub(val, delta, &result):
+        raise_out_of_bounds(val, BS_UNDERFLOW if delta > 0 else BS_OVERFLOW, creso)
+    return result
+
+
+@cython.wraparound(False)
+@cython.boundscheck(False)
+cdef _get_utc_bounds(ndarray[int64_t] vals, Localizer info):
+    # Determine whether each date lies left of the DST transition (store in
+    # result_a) or right of the DST transition (store in result_b)
+
+    cdef:
+        ndarray[int64_t] result_a, result_b
+        Py_ssize_t i, n = vals.size
+        const int64_t* tdata = info.tdata
+        const int64_t[::1] deltas = info.deltas
+        Py_ssize_t ntrans = info.ntrans
+        NPY_DATETIMEUNIT creso = info._creso
+        bint use_zoneinfo = info.use_zoneinfo
+        tzinfo tz = info.tz
+        int64_t val, v_left, v_right, delta0, delta1, local0, local1
+        int64_t delta_l, delta_r
+        Py_ssize_t isl, isr, pos_left, pos_right
+        int64_t search_value
+        int64_t ppd = periods_per_day(creso)
+        BoundaryStatus status_left, status_right
+
+    result_a = cnp.PyArray_EMPTY(vals.ndim, vals.shape, cnp.NPY_INT64, 0)
+    result_b = cnp.PyArray_EMPTY(vals.ndim, vals.shape, cnp.NPY_INT64, 0)
+
+    for i in range(n):
+        # This loops resembles the "Find the two best possibilities" block
+        #  in pytz's DstTZInfo.localize method.
+        result_a[i] = NPY_NAT
+        result_b[i] = NPY_NAT
+
+        val = vals[i]
+        if val == NPY_NAT:
+            continue
+
+        if use_zoneinfo and info.has_tz_rule and val > info.last_trans:
+            # For values beyond cached transition coverage, derive the two
+            # candidate UTC instants via zoneinfo and keep whichever
+            # round-trip back to this wall time.
+            delta0 = _tz_localize_using_tzinfo_api(val, tz, True, creso, NULL, 0)
+            delta1 = _tz_localize_using_tzinfo_api(val, tz, True, creso, NULL, 1)
+
+            # GH#65733 a candidate that wrapped int64 fails the round-trip below
+            #  and leaves both bounds NaT, which the caller reads as "nonexistent
+            #  time" instead of raising OutOfBoundsDatetime.  The cached path's
+            #  NPY_NAT check is not needed here: this branch only runs for
+            #  val > last_trans, which is always far above the sentinel.
+            if checked_sub(val, delta0, &v_left):
+                status_left = BS_UNDERFLOW if delta0 > 0 else BS_OVERFLOW
+            else:
+                status_left = BS_OK
+                local0 = v_left + _tz_localize_using_tzinfo_api(
+                    v_left, tz, to_utc=False, creso=creso
+                )
+                if local0 == val:
+                    result_a[i] = v_left
+
+            if checked_sub(val, delta1, &v_right):
+                status_right = BS_UNDERFLOW if delta1 > 0 else BS_OVERFLOW
+            else:
+                status_right = BS_OK
+                local1 = v_right + _tz_localize_using_tzinfo_api(
+                    v_right, tz, to_utc=False, creso=creso
+                )
+                if local1 == val:
+                    result_b[i] = v_right
+
+            if result_a[i] == NPY_NAT and result_b[i] == NPY_NAT:
+                if status_left != BS_OK and status_right != BS_OK:
+                    raise_out_of_bounds(val, status_left, creso)
+            continue
+
+        if checked_sub(val, ppd, &search_value):
+            isl = 0
+        else:
+            isl = bisect_right_i8(tdata, search_value, ntrans) - 1
+            if isl < 0:
+                isl = 0
+
+        delta_l = deltas[isl]
+        # GH#66550 landing exactly on NPY_NAT is an underflow too: it is one
+        #  below the minimum representable value.  It also breaks
+        #  bisect_right_i8's `val >= tdata[0]` precondition (tdata[0] is
+        #  NPY_NAT+1), which would leave pos_left at -1 and read out of bounds.
+        if checked_sub(val, delta_l, &v_left) or v_left == NPY_NAT:
+            status_left = BS_UNDERFLOW if delta_l > 0 else BS_OVERFLOW
+        else:
+            status_left = BS_OK
+            pos_left = bisect_right_i8(tdata, v_left, ntrans) - 1
+            # timestamp falls to the left side of the DST transition
+            if v_left + deltas[pos_left] == val:
+                result_a[i] = v_left
+
+        if checked_add(val, ppd, &search_value):
+            isr = ntrans - 1
+        else:
+            isr = bisect_right_i8(tdata, search_value, ntrans) - 1
+            if isr < 0:
+                isr = 0
+
+        delta_r = deltas[isr]
+        # GH#66550 same guard as for v_left above
+        if checked_sub(val, delta_r, &v_right) or v_right == NPY_NAT:
+            status_right = BS_UNDERFLOW if delta_r > 0 else BS_OVERFLOW
+        else:
+            status_right = BS_OK
+            pos_right = bisect_right_i8(tdata, v_right, ntrans) - 1
+            # timestamp falls to the right side of the DST transition
+            if v_right + deltas[pos_right] == val:
+                result_b[i] = v_right
+
+        if result_a[i] == NPY_NAT and result_b[i] == NPY_NAT:
+            if status_left != BS_OK and status_right != BS_OK:
+                raise_out_of_bounds(val, status_left, creso)
+
+    return result_a, result_b
+
+
+@cython.wraparound(False)
+@cython.boundscheck(False)
+cdef ndarray[int64_t] _get_dst_hours(
+    # vals, creso only needed here to potential render an exception message
+    const int64_t[:] vals,
+    ndarray[int64_t] result_a,
+    ndarray[int64_t] result_b,
+    NPY_DATETIMEUNIT creso,
+):
+    cdef:
+        Py_ssize_t i, n = vals.shape[0]
+        ndarray[uint8_t, cast=True] mismatch
+        ndarray[int64_t] delta, dst_hours
+        ndarray[intp_t] switch_idxs, trans_idx, grp, a_idx, b_idx, one_diff
+        list trans_grp
+        intp_t switch_idx
+        int64_t left, right
+
+    dst_hours = cnp.PyArray_EMPTY(result_a.ndim, result_a.shape, cnp.NPY_INT64, 0)
+    dst_hours[:] = NPY_NAT
+
+    mismatch = cnp.PyArray_ZEROS(result_a.ndim, result_a.shape, cnp.NPY_BOOL, 0)
+
+    for i in range(n):
+        left = result_a[i]
+        right = result_b[i]
+
+        # Get the ambiguous hours (given the above, these are the hours
+        # where result_a != result_b and neither of them are NAT)
+        if left != right and left != NPY_NAT and right != NPY_NAT:
+            mismatch[i] = 1
+
+    trans_idx = mismatch.nonzero()[0]
+
+    if trans_idx.size == 1:
+        # see test_tz_localize_to_utc_ambiguous_infer
+        stamp = _render_tstamp(vals[trans_idx[0]], creso=creso)
+        raise ValueError(
+            f"Cannot infer dst time from {stamp} as there "
+            "are no repeated times"
+        )
+
+    # Split the array into contiguous chunks (where the difference between
+    # indices is 1).  These are effectively dst transitions in different
+    # years which is useful for checking that there is not an ambiguous
+    # transition in an individual year.
+    if trans_idx.size > 0:
+        one_diff = np.where(np.diff(trans_idx) != 1)[0] + 1
+        trans_grp = np.array_split(trans_idx, one_diff)
+
+        # Iterate through each day, if there are no hours where the
+        # delta is negative (indicates a repeat of hour) the switch
+        # cannot be inferred
+        for grp in trans_grp:
+
+            delta = np.diff(result_a[grp])
+            if grp.size == 1 or np.all(delta > 0):
+                # see test_tz_localize_to_utc_ambiguous_infer
+                stamp = _render_tstamp(vals[grp[0]], creso=creso)
+                raise ValueError(
+                    f"{stamp} is an ambiguous time and cannot be inferred."
+                )
+
+            # Find the index for the switch and pull from a for dst and b
+            # for standard
+            switch_idxs = (delta <= 0).nonzero()[0]
+            if switch_idxs.size > 1:
+                # see test_tz_localize_to_utc_ambiguous_infer
+                raise ValueError(
+                    f"There are {switch_idxs.size} dst switches when "
+                    "there should only be 1."
+                )
+
+            switch_idx = switch_idxs[0] + 1
+            # Pull the only index and adjust
+            a_idx = grp[:switch_idx]
+            b_idx = grp[switch_idx:]
+            dst_hours[grp] = np.hstack((result_a[a_idx], result_b[b_idx]))
+
+    return dst_hours
+
+
+# ----------------------------------------------------------------------
+# Timezone Conversion
+
+cpdef int64_t tz_convert_from_utc_single(
+    int64_t utc_val, tzinfo tz, NPY_DATETIMEUNIT creso=NPY_DATETIMEUNIT.NPY_FR_ns
+) except? -1:
+    """
+    Convert the val (in i8) from UTC to tz
+
+    This is a single value version of tz_convert_from_utc.
+
+    Parameters
+    ----------
+    utc_val : int64
+    tz : tzinfo
+    creso : NPY_DATETIMEUNIT, default NPY_FR_ns
+
+    Returns
+    -------
+    converted: int64
+    """
+    cdef:
+        Localizer info = Localizer(tz, creso=creso)
+        Py_ssize_t pos
+
+    # Note: caller is responsible for ensuring utc_val != NPY_NAT
+    return info.utc_val_to_local_val(utc_val, &pos)
+
+
+# OSError may be thrown by tzlocal on windows at or close to 1970-01-01
+#  see https://github.com/pandas-dev/pandas/pull/37591#issuecomment-720628241
+cdef int64_t _tz_localize_using_tzinfo_api(
+    int64_t val,
+    tzinfo tz,
+    bint to_utc=True,
+    NPY_DATETIMEUNIT creso=NPY_DATETIMEUNIT.NPY_FR_ns,
+    bint* fold=NULL,
+    int fold_in=-1,
+) except? -1:
+    """
+    Convert the i8 representation of a datetime from a general-case timezone to
+    UTC, or vice-versa using the datetime/tzinfo API.
+
+    Private, not intended for use outside of tslibs.tzconversion.
+
+    Parameters
+    ----------
+    val : int64_t
+    tz : tzinfo
+    to_utc : bint
+        True if converting _to_ UTC, False if going the other direction.
+    creso : NPY_DATETIMEUNIT
+    fold : bint*, default NULL
+        pointer to fold: whether datetime ends up in a fold or not
+        after adjustment.
+        Only used with to_utc=False.
+    fold_in : int, default -1
+        Input fold when to_utc=True. By default, not specified (-1).
+
+    Returns
+    -------
+    delta : int64_t
+        Value to add when converting from utc, subtract when converting to utc.
+
+    Notes
+    -----
+    Sets fold by pointer
+    """
+    cdef:
+        npy_datetimestruct dts
+        datetime dt
+        int64_t delta
+        timedelta td
+        int64_t pps = periods_per_second(creso)
+
+    pandas_datetime_to_datetimestruct(val, creso, &dts)
+
+    # datetime_new is cython-optimized constructor
+    if not to_utc:
+        # tz.utcoffset only makes sense if datetime
+        # is _wall time_, so if val is a UTC timestamp convert to wall time
+        dt = _astimezone(dts, tz)
+
+        if fold is not NULL:
+            # NB: fold is only passed with to_utc=False
+            fold[0] = dt.fold
+    else:
+        try:
+            if fold_in == -1:
+                dt = datetime_new(dts.year, dts.month, dts.day, dts.hour,
+                                  dts.min, dts.sec, dts.us, None)
+            else:
+                dt = datetime_new(dts.year, dts.month, dts.day, dts.hour,
+                                  dts.min, dts.sec, dts.us, None, fold=fold_in)
+        except ValueError as err:
+            raise NotImplementedError(
+                "Localizing Timestamps which are outside the range of Python's "
+                f"standard library datetime is not supported ({err})."
+            ) from err
+
+    td = tz.utcoffset(dt)
+    delta = int(td.total_seconds() * pps)
+    return delta
+
+
+cdef datetime _astimezone(npy_datetimestruct dts, tzinfo tz):
+    """
+    Optimized equivalent to:
+
+    dt = datetime(dts.year, dts.month, dts.day, dts.hour,
+                  dts.min, dts.sec, dts.us, utc_stdlib)
+    dt = dt.astimezone(tz)
+
+    Derived from the datetime.astimezone implementation at
+    https://github.com/python/cpython/blob/main/Modules/_datetimemodule.c#L6187
+
+    NB: we are assuming tz is not None.
+    """
+    cdef:
+        datetime result
+
+    try:
+        result = datetime_new(dts.year, dts.month, dts.day, dts.hour,
+                              dts.min, dts.sec, dts.us, tz)
+    except ValueError as err:
+        raise NotImplementedError(
+            "Localizing Timestamps which are outside the range of Python's "
+            f"standard library datetime is not supported ({err})."
+        ) from err
+
+    return tz.fromutc(result)
+
+
+# NB: relies on dateutil internals, subject to change.
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cdef bint _infer_dateutil_fold(
+    int64_t value,
+    const int64_t[::1] trans,
+    const int64_t[::1] deltas,
+    Py_ssize_t pos,
+):
+    """
+    Infer _TSObject fold property from value by assuming 0 and then setting
+    to 1 if necessary.
+
+    Parameters
+    ----------
+    value : int64_t
+    trans : ndarray[int64_t]
+        ndarray of offset transition points in nanoseconds since epoch.
+    deltas : int64_t[:]
+        array of offsets corresponding to transition points in trans.
+    pos : Py_ssize_t
+        Position of the last transition point before taking fold into account.
+
+    Returns
+    -------
+    bint
+        Due to daylight saving time, one wall clock time can occur twice
+        when shifting from summer to winter time; fold describes whether the
+        datetime-like corresponds  to the first (0) or the second time (1)
+        the wall clock hits the ambiguous time
+
+    References
+    ----------
+    .. [1] "PEP 495 - Local Time Disambiguation"
+           https://www.python.org/dev/peps/pep-0495/#the-fold-attribute
+    """
+    cdef:
+        bint fold = 0
+        int64_t fold_delta
+
+    if pos > 0:
+        fold_delta = deltas[pos - 1] - deltas[pos]
+        if value - fold_delta < trans[pos]:
+            fold = 1
+
+    return fold

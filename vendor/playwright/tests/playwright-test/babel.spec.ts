@@ -1,0 +1,336 @@
+/**
+ * Copyright (c) Microsoft Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { test, expect } from './playwright-test-fixtures';
+
+test('should succeed', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'one-success.spec.ts': `
+      import { test, expect } from '@playwright/test';
+
+      class Foo {
+        #logger = 2;
+        get #log() { return this.#logger; }
+        value() { return this.#log; };
+      }
+
+      test('succeeds', () => {
+        expect(new Foo().value()).toBe(2);
+      });
+    `
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.failed).toBe(0);
+});
+
+test('should support declare class fields', {
+  annotation: { type: 'issue', description: 'https://github.com/microsoft/playwright/issues/38586' },
+}, async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'one-success.spec.ts': `
+      import { test, expect } from '@playwright/test';
+
+      class Base {
+        constructor(p1, p2) {
+          this.p1 = p1;
+          this.p2 = p2;
+        }
+      }
+
+      class Derived extends Base {
+        p1: string;
+        declare p2: string;
+      }
+
+      test('works', () => {
+        const d = new Derived('value1', 'value2');
+        expect(d.p1).toBe(undefined);
+        expect(d.p2).toBe('value2');
+      })
+    `
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.failed).toBe(0);
+});
+
+test('should treat enums equally', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'component.tsx': `
+      export enum MyEnum {
+        Value = "value",
+      };
+
+      export const enum MyConstEnum {
+        Value = "value",
+      }
+    `,
+    'regular.ts': `
+      export enum MyEnum {
+        Value = "value",
+      };
+
+      export const enum MyConstEnum {
+        Value = "value",
+      }
+    `,
+    'example.spec.ts': `
+      import { test, expect } from '@playwright/test';
+
+      import * as components from './component';
+      import * as regular from './regular';
+
+      test('works', () => {
+        expect.soft(components.MyEnum.Value).toBe("value");
+        expect.soft(components.MyConstEnum.Value).toBe("value");
+        expect.soft(regular.MyEnum.Value).toBe("value");
+        expect.soft(regular.MyConstEnum.Value).toBe("value");
+      })
+    `,
+  });
+
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should be able to access |this| inside class properties', async ({ runInlineTest }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/21794' });
+  const result = await runInlineTest({
+    'tsconfig.json': `{ "compilerOptions": { "useDefineForClassFields": false } }`,
+    'example.spec.ts': `
+      import { test, expect } from '@playwright/test';
+
+      class Foo {
+        constructor(private readonly incoming: number) {}
+        value = this.incoming;
+      }
+
+      test('works', () => {
+        expect(new Foo(42).value).toBe(42);
+      })
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+for (const [compilerOptions, define] of [
+  [{}, true],
+  [{ target: 'ES2022' }, true],
+  [{ target: 'ES2021' }, false],
+  [{ target: 'ES2021', useDefineForClassFields: true }, true],
+  [{ target: 'ESNext', useDefineForClassFields: false }, false],
+] as const) {
+  test(`should ${define ? 'define' : 'assign'} class fields with ${JSON.stringify(compilerOptions)}`, async ({ runInlineTest }) => {
+    const result = await runInlineTest({
+      'tsconfig.json': JSON.stringify({ compilerOptions }),
+      'example.spec.ts': `
+        import { test, expect } from '@playwright/test';
+
+        class Base {
+          redeclared = 'base';
+          setterCalls: string[] = [];
+          set overridden(value: string) { this.setterCalls.push(value); }
+        }
+
+        class Derived extends Base {
+          redeclared: string;
+          overridden = 'derived';
+          fromParameter = this.parameter + '-field';
+          constructor(private parameter: string) { super(); }
+        }
+
+        test('works', () => {
+          const derived = new Derived('parameter');
+          expect(derived.redeclared).toBe(${define ? 'undefined' : `'base'`});
+          expect(derived.setterCalls).toEqual(${define ? '[]' : `['derived']`});
+          expect(derived.fromParameter).toBe(${define ? `'undefined-field'` : `'parameter-field'`});
+        });
+      `,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.passed).toBe(1);
+  });
+}
+
+test('should work with |const| Type Parameters', async ({ runInlineTest }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/21900' });
+  const result = await runInlineTest({
+    'example.spec.ts': `
+      import { test, expect } from '@playwright/test';
+
+      test('works', () => {
+        type HasNames = { names: readonly string[] };
+        function getNamesExactly<const T extends HasNames>(arg: T): T['names'] {
+        //                       ^^^^^
+            return arg.names;
+        }
+        const names = getNamesExactly({ names: ['Alice', 'Bob', 'Eve'] });
+        console.log('names: ' + names.join(', '))
+      })
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.output).toContain('names: Alice, Bob, Eve');
+});
+
+test('should not read browserslist file', async ({ runInlineTest }) => {
+  test.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/23125' });
+  const result = await runInlineTest({
+    'package.json': `{ "browserslist": ["some invalid! value :)"] }`,
+    'one-success.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      test('succeeds', () => {});
+    `
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+  expect(result.failed).toBe(0);
+});
+
+test('should not transform external', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'playwright.config.ts': `
+      import { defineConfig } from '@playwright/test';
+      export default defineConfig({
+        build: {
+          external: ['**/a.spec.ts']
+        }
+      });
+    `,
+    'a.spec.ts': `
+      const { test, expect, Page } = require('@playwright/test');
+      let page: Page;
+      enum MyEnum { Value = 'value' }
+
+      test('succeeds', () => {
+        expect(MyEnum.Value).toBe('value');
+      });
+    `
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toMatch(/(SyntaxError: Unexpected token ':')|(SyntaxError: TypeScript enum is not supported)/);
+});
+
+for (const type of ['module', undefined]) {
+  test(`should support import assertions with type=${type} in the package.json`, {
+    annotation: {
+      type: 'issue',
+      description: 'https://github.com/microsoft/playwright/issues/32659'
+    }
+  }, async ({ runInlineTest }) => {
+    const result = await runInlineTest({
+      'playwright.config.ts': `
+      import packageJSON from './package.json' assert { type: 'json' };
+      console.log('imported value: ' + packageJSON.foo);
+      export default { };
+    `,
+      'package.json': JSON.stringify({ foo: 'bar', type }),
+      'a.test.ts': `
+      import { test, expect } from '@playwright/test';
+
+      test('check project name', ({}, testInfo) => {
+        expect(1).toBe(1);
+      });
+    `
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.passed).toBe(1);
+    expect(result.stdout).toContain('imported value: bar');
+  });
+}
+
+test('should allow overwriting exports of a transpiled module', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'util.ts': `
+      export function greet() { return 'real'; }
+    `,
+    'greeter.ts': `
+      import { greet } from './util';
+      export function run() { return greet(); }
+    `,
+    'example.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      import * as util from './util';
+      import { run } from './greeter';
+
+      test('works', () => {
+        (util as any).greet = () => 'stub';
+        expect(run()).toBe('stub');
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should read undefined from an uninitialized import in a cycle', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'a.ts': `
+      import './b';
+      export const value = 'a';
+    `,
+    'b.ts': `
+      import { value } from './a';
+      export const valueSeenByB = value;
+    `,
+    'example.spec.ts': `
+      import { test, expect } from '@playwright/test';
+      import { value } from './a';
+      import { valueSeenByB } from './b';
+
+      test('works', () => {
+        expect(value).toBe('a');
+        expect(valueSeenByB).toBe(undefined);
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should parse generic arrow functions in tsx', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'example.spec.tsx': `
+      import { test, expect } from '@playwright/test';
+
+      const identity = <T>(value: T) => value;
+
+      test('works', () => {
+        expect(identity('value')).toBe('value');
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(0);
+  expect(result.passed).toBe(1);
+});
+
+test('should reject import.meta in commonjs', async ({ runInlineTest }) => {
+  const result = await runInlineTest({
+    'example.spec.ts': `
+      import { test, expect } from '@playwright/test';
+
+      test('works', () => {
+        expect(import.meta.dirname).toBeTruthy();
+      });
+    `,
+  });
+  expect(result.exitCode).toBe(1);
+  expect(result.output).toMatch(/(SyntaxError: Cannot use 'import.meta' outside a module)|(ReferenceError: require is not defined in ES module scope)/);
+});

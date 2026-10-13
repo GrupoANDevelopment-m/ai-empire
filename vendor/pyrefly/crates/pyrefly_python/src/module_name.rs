@@ -1,0 +1,997 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+use std::ffi::OsString;
+use std::fmt;
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::hash::Hash;
+use std::path::Component;
+use std::path::Path;
+use std::path::PathBuf;
+
+use dupe::Dupe;
+use equivalent::Equivalent;
+use pyrefly_util::visit::Visit;
+use pyrefly_util::visit::VisitMut;
+use ruff_python_ast::name::Name;
+use serde::Deserialize;
+use serde::Deserializer;
+use serde::Serialize;
+use serde::Serializer;
+use static_interner::Intern;
+use static_interner::Interner;
+use thiserror::Error;
+use unicode_ident::is_xid_continue;
+use unicode_ident::is_xid_start;
+
+use crate::PYTHON_EXTENSIONS;
+use crate::dunder;
+
+static MODULE_NAME_INTERNER: Interner<String> = Interner::new();
+
+/// The name of a python module. Examples: `foo.bar.baz`, `.foo.bar`.
+#[derive(Clone, Dupe, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ModuleName(Intern<String>);
+
+/// Indicates whether a module name was found on the guaranteed search path
+/// or via fallback heuristics.
+#[derive(Clone, Dupe, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ModuleNameKind {
+    /// A module name found on the normal, configured search path.
+    /// This is reliable for determining project structure.
+    Guaranteed,
+    /// A module name inferred using fallback search path heuristics.
+    /// This may not be reliable for determining project structure.
+    Fallback,
+}
+
+/// A module name that tracks whether it was found on the guaranteed search path
+/// or via fallback heuristics.
+///
+/// Fallback module names may not be reliable for determining project structure,
+/// since they were inferred using heuristic search paths rather than explicit configuration.
+///
+/// Note: Equality, hashing, and ordering only consider the underlying ModuleName,
+/// not the kind. This ensures that modules with the same name are treated identically
+/// regardless of how their name was discovered.
+#[derive(Clone, Dupe, Copy, Debug)]
+pub struct ModuleNameWithKind {
+    name: ModuleName,
+    kind: ModuleNameKind,
+}
+
+impl Hash for ModuleNameWithKind {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+    }
+}
+
+impl PartialEq for ModuleNameWithKind {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl Eq for ModuleNameWithKind {}
+
+impl PartialOrd for ModuleNameWithKind {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ModuleNameWithKind {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.name.cmp(&other.name)
+    }
+}
+
+impl ModuleNameWithKind {
+    /// Create a guaranteed module name.
+    pub fn guaranteed(name: ModuleName) -> Self {
+        Self {
+            name,
+            kind: ModuleNameKind::Guaranteed,
+        }
+    }
+
+    /// Create a fallback module name.
+    pub fn fallback(name: ModuleName) -> Self {
+        Self {
+            name,
+            kind: ModuleNameKind::Fallback,
+        }
+    }
+
+    /// Get the underlying module name, regardless of whether it's guaranteed or fallback.
+    pub fn name(&self) -> ModuleName {
+        self.name
+    }
+
+    /// Get the kind of this module name (Guaranteed or Fallback).
+    pub fn kind(&self) -> ModuleNameKind {
+        self.kind
+    }
+
+    /// Returns true if this module name was created using fallback heuristics.
+    pub fn is_fallback(&self) -> bool {
+        self.kind == ModuleNameKind::Fallback
+    }
+}
+
+impl<To: 'static> Visit<To> for ModuleName {
+    const RECURSE_CONTAINS: bool = false;
+    fn recurse<'a>(&'a self, _: &mut dyn FnMut(&'a To)) {}
+}
+
+impl<To: 'static> VisitMut<To> for ModuleName {
+    const RECURSE_CONTAINS: bool = false;
+    fn recurse_mut(&mut self, _: &mut dyn FnMut(&mut To)) {}
+}
+
+impl Serialize for ModuleName {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ModuleName {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s: &str = Deserialize::deserialize(deserializer)?;
+        Ok(ModuleName::from_str(s))
+    }
+}
+
+impl Display for ModuleName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.is_empty() {
+            write!(f, ".")
+        } else {
+            write!(f, "{}", self.0)
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+enum PathConversionError {
+    #[error("invalid source file extension (file name: `{file_name}`")]
+    InvalidExtension { file_name: String },
+    #[error("path component is not UTF-8 encoded: `{component:?}`")]
+    ComponentNotUTF8 { component: OsString },
+}
+
+impl Debug for ModuleName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut f = f.debug_tuple("ModuleName");
+        f.field(&self.as_str());
+        f.finish()
+    }
+}
+
+#[derive(Hash, Eq, PartialEq)]
+struct StrRef<'a>(&'a str);
+
+impl Equivalent<String> for StrRef<'_> {
+    fn equivalent(&self, key: &String) -> bool {
+        self.0 == key
+    }
+}
+
+impl From<StrRef<'_>> for String {
+    fn from(value: StrRef<'_>) -> Self {
+        value.0.to_owned()
+    }
+}
+
+impl ModuleName {
+    pub fn builtins() -> Self {
+        Self::from_str("builtins")
+    }
+
+    pub fn extra_builtins() -> Self {
+        Self::from_str("__builtins__")
+    }
+
+    pub fn typing() -> Self {
+        Self::from_str("typing")
+    }
+
+    pub fn typing_extensions() -> Self {
+        Self::from_str("typing_extensions")
+    }
+
+    pub fn future() -> Self {
+        Self::from_str("__future__")
+    }
+
+    pub fn types() -> Self {
+        Self::from_str("types")
+    }
+
+    pub fn warnings() -> Self {
+        Self::from_str("warnings")
+    }
+
+    pub fn collections() -> Self {
+        Self::from_str("collections")
+    }
+
+    pub fn enum_() -> Self {
+        Self::from_str("enum")
+    }
+
+    pub fn abc() -> Self {
+        Self::from_str("abc")
+    }
+
+    pub fn dataclasses() -> Self {
+        Self::from_str("dataclasses")
+    }
+
+    pub fn functools() -> Self {
+        Self::from_str("functools")
+    }
+
+    pub fn type_checker_internals() -> Self {
+        Self::from_str("_typeshed._type_checker_internals")
+    }
+
+    pub fn collections_abc() -> Self {
+        Self::from_str("_collections_abc")
+    }
+
+    pub fn string_templatelib() -> Self {
+        Self::from_str("string.templatelib")
+    }
+
+    pub fn pydantic() -> Self {
+        Self::from_str("pydantic.main")
+    }
+
+    pub fn pydantic_package() -> Self {
+        Self::from_str("pydantic")
+    }
+
+    pub fn pydantic_settings() -> Self {
+        Self::from_str("pydantic_settings.main")
+    }
+
+    pub fn pydantic_root_model() -> Self {
+        Self::from_str("pydantic.root_model")
+    }
+
+    pub fn pydantic_dataclasses() -> Self {
+        Self::from_str("pydantic.dataclasses")
+    }
+
+    pub fn pydantic_alias_generators() -> Self {
+        Self::from_str("pydantic.alias_generators")
+    }
+
+    pub fn django_models_enums() -> Self {
+        Self::from_str("django.db.models.enums")
+    }
+
+    pub fn attr() -> Self {
+        Self::from_str("attr")
+    }
+
+    pub fn attrs() -> Self {
+        Self::from_str("attrs")
+    }
+
+    pub fn django_models() -> Self {
+        Self::from_str("django.db.models.base")
+    }
+
+    pub fn django_models_fields() -> Self {
+        Self::from_str("django.db.models.fields")
+    }
+
+    pub fn django_models_fields_related() -> Self {
+        Self::from_str("django.db.models.fields.related")
+    }
+
+    pub fn django_models_fields_related_descriptors() -> Self {
+        Self::from_str("django.db.models.fields.related_descriptors")
+    }
+
+    pub fn django_utils_functional() -> Self {
+        Self::from_str("django.utils.functional")
+    }
+
+    pub fn factory_base() -> Self {
+        Self::from_str("factory.base")
+    }
+
+    pub fn marshmallow_schema() -> Self {
+        Self::from_str("marshmallow.schema")
+    }
+
+    pub fn rest_framework_fields() -> Self {
+        Self::from_str("rest_framework.fields")
+    }
+
+    pub fn rest_framework_serializers() -> Self {
+        Self::from_str("rest_framework.serializers")
+    }
+
+    pub fn pydantic_types() -> Self {
+        Self::from_str("pydantic.types")
+    }
+
+    /// The "unknown" module name, which corresponds to `__unknown__`.
+    /// Used for files directly opened or passed on the command line which aren't on the search path.
+    pub fn unknown() -> Self {
+        Self::from_str("__unknown__")
+    }
+
+    pub fn from_str(x: &str) -> Self {
+        ModuleName(MODULE_NAME_INTERNER.intern(StrRef(x)))
+    }
+
+    pub fn from_string(x: String) -> Self {
+        ModuleName(MODULE_NAME_INTERNER.intern(x))
+    }
+
+    pub fn from_name(x: &Name) -> Self {
+        Self::from_str(x)
+    }
+
+    pub fn from_parts(parts: impl IntoIterator<Item = impl Display + AsRef<str>>) -> Self {
+        Self::from_string(itertools::join(parts, "."))
+    }
+
+    fn from_relative_path_components(
+        mut components: Vec<&str>,
+        extra_extensions: &[String],
+    ) -> anyhow::Result<Self> {
+        match components.pop() {
+            None => {}
+            Some(file_name) => {
+                let Some((stem, extension)) = file_name.rsplit_once('.') else {
+                    return Err(anyhow::anyhow!(PathConversionError::InvalidExtension {
+                        file_name: file_name.to_owned(),
+                    }));
+                };
+                let is_extra_extension = extra_extensions.iter().any(|extra| extra == extension);
+                if !PYTHON_EXTENSIONS.contains(&extension) && !is_extra_extension {
+                    return Err(anyhow::anyhow!(PathConversionError::InvalidExtension {
+                        file_name: file_name.to_owned(),
+                    }));
+                }
+                if stem != dunder::INIT {
+                    components.push(if is_extra_extension { file_name } else { stem })
+                }
+            }
+        }
+        Ok(ModuleName::from_parts(components))
+    }
+
+    /// Convert a relative file path to a module name, stripping the file extension.
+    /// For example, `foo/bar.py` → `foo.bar`, `foo/bar/__init__.py` → `foo.bar`.
+    pub fn from_relative_path(path: &Path) -> anyhow::Result<Self> {
+        Self::from_relative_path_with_extra_extensions(path, &[])
+    }
+
+    /// Convert a relative file path to a module name, preserving configured extra extensions.
+    /// For example, `foo/bar.cinc` → `foo.bar.cinc`.
+    pub fn from_relative_path_with_extra_extensions(
+        path: &Path,
+        extra_extensions: &[String],
+    ) -> anyhow::Result<Self> {
+        let components = Self::path_to_components(path)?;
+        Self::from_relative_path_components(components, extra_extensions)
+    }
+
+    fn path_to_components(path: &Path) -> anyhow::Result<Vec<&str>> {
+        let mut components = Vec::new();
+        for raw_component in path.components() {
+            if let Some(component) = raw_component.as_os_str().to_str() {
+                components.push(component)
+            } else {
+                return Err(anyhow::anyhow!(PathConversionError::ComponentNotUTF8 {
+                    component: raw_component.as_os_str().to_owned(),
+                }));
+            }
+        }
+        Ok(components)
+    }
+
+    pub fn relative_module_name_between(from: &Path, to: &Path) -> Option<ModuleName> {
+        let relative_path = pathdiff::diff_paths(to, from.parent()?)?;
+        // In the following loop, we aim to generate a list of components that can be joined by `.`
+        // to form a correct relative import module name,
+        let mut components = vec![""];
+        for raw_component in relative_path.as_path().components() {
+            match &raw_component {
+                // For each parent, we should create a `.`.
+                // The `.` is already provided during the join, so we only need an empty component.
+                Component::ParentDir => components.push(""),
+                Component::CurDir => {}
+                Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                    components.push(raw_component.as_os_str().to_str()?);
+                }
+            };
+        }
+        Self::from_relative_path_components(components, &[]).ok()
+    }
+
+    pub fn append(self, name: &Name) -> Self {
+        Self::from_string(format!("{}.{}", self.as_str(), name))
+    }
+
+    /// Create a new ModuleName instance based off the current instance, with:
+    /// - specified number of dots removed
+    /// - specified suffix appended
+    ///
+    /// * `is_init` - Whether the current module is an __init__.py file
+    /// * `dots` - The number of dots to remove
+    /// * `suffix` - The suffix to append to the current module
+    pub fn new_maybe_relative(
+        self,
+        is_init: bool,
+        mut dots: u32,
+        suffix: Option<&Name>,
+    ) -> Option<Self> {
+        if dots == 0
+            && let Some(s) = suffix
+        {
+            return Some(ModuleName::from_name(s));
+        }
+        let mut components = self.components();
+        if is_init {
+            dots = dots.saturating_sub(1);
+        }
+        for _ in 0..dots {
+            components.pop()?;
+        }
+        if let Some(suffix) = suffix {
+            components.push(suffix.clone());
+        }
+        Some(ModuleName::from_parts(components))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn first_component(self) -> Name {
+        match self.0.split_once('.') {
+            None => Name::new(self.as_str()),
+            Some(x) => Name::new(x.0),
+        }
+    }
+
+    pub fn components(self) -> Vec<Name> {
+        self.0.split('.').map(Name::new).collect()
+    }
+
+    /// If the module is on the search path, return its name from that path. Otherwise, return None.
+    /// `extra_extensions` lists non-Python file extensions (e.g. `["cinc", "cconf"]`)
+    /// whose extension is part of the module name rather than being stripped.
+    pub fn from_path<'a>(
+        path: &Path,
+        includes: impl Iterator<Item = &'a PathBuf>,
+        extra_extensions: &[String],
+    ) -> Option<ModuleName> {
+        Self::from_path_impl(path, includes, extra_extensions)
+    }
+
+    /// If the module is on the search path or fallback search path, return its name from that path.
+    /// Returns a ModuleNameWithKind indicating whether the name was found on the normal search path
+    /// or using fallback paths.
+    pub fn from_path_with_fallback<'a>(
+        path: &Path,
+        normal_includes: impl Iterator<Item = &'a PathBuf>,
+        fallback_includes: impl Iterator<Item = &'a PathBuf>,
+        extra_extensions: &[String],
+    ) -> Option<ModuleNameWithKind> {
+        // Try normal includes first (guaranteed)
+        if let Some(name) = Self::from_path_impl(path, normal_includes, extra_extensions) {
+            return Some(ModuleNameWithKind::guaranteed(name));
+        }
+        // Try fallback includes
+        Self::from_path_impl(path, fallback_includes, extra_extensions)
+            .map(ModuleNameWithKind::fallback)
+    }
+
+    fn from_path_impl<'a>(
+        path: &Path,
+        includes: impl Iterator<Item = &'a PathBuf>,
+        extra_extensions: &[String],
+    ) -> Option<ModuleName> {
+        /// Convert a relative path to a module name. For files with an extra
+        /// extension (e.g. `.cinc`), the extension stays in the module name:
+        /// `service/config.cinc` → `service.config.cinc`. For standard Python
+        /// files, the extension is stripped: `foo/bar.py` → `foo.bar`.
+        fn path_to_module(mut path: &Path, extra_extensions: &[String]) -> Option<ModuleName> {
+            let is_init = path.file_stem() == Some(dunder::INIT.as_str().as_ref());
+            if is_init {
+                path = path.parent()?;
+            }
+            // Check if the file has an extra extension. For these files, the
+            // extension is part of the module name (dots in the filename become
+            // module separators via from_parts joining with ".").
+            let has_extra_ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|ext| extra_extensions.iter().any(|e| e == ext));
+            let stripped = path.with_extension("");
+            let path = if has_extra_ext { path } else { &stripped };
+            let mut out = Vec::new();
+            for x in path.components() {
+                if let Component::Normal(x) = x
+                    && !x.is_empty()
+                {
+                    out.push(x.to_string_lossy());
+                }
+            }
+            // strip `-stubs` from the top-level directory (e.g. `scipy-stubs/` -> `scipy`)
+            if let Some(first) = out.first_mut()
+                && let Some(stripped) = first.strip_suffix("-stubs")
+            {
+                *first = stripped.to_owned().into();
+            }
+            if out.is_empty() {
+                return None;
+            }
+            if !path_parts_form_valid_module_name(&out, is_init) {
+                return None;
+            }
+            Some(ModuleName::from_parts(out))
+        }
+
+        for include in includes {
+            if let Ok(x) = path.strip_prefix(include)
+                && let Some(res) = path_to_module(x, extra_extensions)
+            {
+                return Some(res);
+            }
+        }
+        None
+    }
+
+    /// Pop off the last name component from this [`ModuleName`]. If the `ModuleName`
+    /// would be empty, return `None` instead.
+    pub fn parent(&self) -> Option<Self> {
+        Some(Self::from_str(self.as_str().rsplit_once('.')?.0))
+    }
+}
+
+/// Whether `str.isidentifier()` would return true (Python 3 rules, no keyword check).
+pub fn is_python_identifier(s: &str) -> bool {
+    let mut chars = s.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || is_xid_start(first)) && chars.all(is_xid_continue)
+}
+
+/// Whether filesystem path components can form a round-trippable module name.
+///
+/// Each directory component must be a valid Python identifier. Directory
+/// components are everything except the file's own name (file stem). For
+/// `__init__` the filename was already dropped, so every remaining component
+/// is a directory.
+///
+/// The filename component may legitimately contain `.` for extra-extension
+/// files (e.g. `config.cinc` → `config.cinc`), where the dots become module
+/// separators. Only its stem (the first dot-separated segment, i.e. the base
+/// name) must be a valid identifier; the trailing extension segments are not
+/// checked.
+fn path_parts_form_valid_module_name(parts: &[impl AsRef<str>], is_init: bool) -> bool {
+    if is_init {
+        // Every remaining component is a directory.
+        return parts.iter().all(|c| is_python_identifier(c.as_ref()));
+    }
+    let (filename, dirs) = parts
+        .split_last()
+        .expect("path parts are non-empty when forming a module name");
+    dirs.iter().all(|c| is_python_identifier(c.as_ref()))
+        && is_python_identifier(filename.as_ref().split('.').next().unwrap_or(""))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_first_component() {
+        assert_eq!(
+            ModuleName::from_str("a.b.c").first_component(),
+            Name::new_static("a")
+        );
+        assert_eq!(
+            ModuleName::from_str("a").first_component(),
+            Name::new_static("a")
+        );
+    }
+
+    #[test]
+    fn test_relative() {
+        let base = ModuleName::from_str("a.b.c");
+        assert_eq!(
+            base.new_maybe_relative(false, 0, Some(&Name::new_static("d")))
+                .unwrap(),
+            ModuleName::from_str("d")
+        );
+        assert_eq!(
+            base.new_maybe_relative(false, 1, Some(&Name::new_static("d")))
+                .unwrap(),
+            ModuleName::from_str("a.b.d")
+        );
+        assert_eq!(
+            base.new_maybe_relative(false, 2, Some(&Name::new_static("d")))
+                .unwrap(),
+            ModuleName::from_str("a.d")
+        );
+        assert_eq!(
+            base.new_maybe_relative(false, 3, Some(&Name::new_static("d")))
+                .unwrap(),
+            ModuleName::from_str("d")
+        );
+        // TODO: This is wrong. The relative level 4 should be invalid
+        assert_eq!(
+            base.new_maybe_relative(false, 4, Some(&Name::new_static("d"))),
+            None
+        );
+        assert_eq!(
+            base.new_maybe_relative(false, 1, None).unwrap(),
+            ModuleName::from_str("a.b")
+        );
+        assert_eq!(
+            base.new_maybe_relative(false, 2, None).unwrap(),
+            ModuleName::from_str("a")
+        );
+        assert_eq!(
+            ModuleName::from_str("sys")
+                .new_maybe_relative(true, 1, None)
+                .unwrap(),
+            ModuleName::from_str("sys")
+        );
+    }
+
+    #[test]
+    fn test_from_relative_path() {
+        fn assert_module_name(path: &str, expected: &str) {
+            assert_eq!(
+                ModuleName::from_relative_path(Path::new(path)).unwrap(),
+                ModuleName::from_str(expected)
+            );
+        }
+        assert_module_name("foo.py", "foo");
+        assert_module_name("foo.pyi", "foo");
+        assert_module_name("foo.ipynb", "foo");
+        assert_module_name("foo/bar.py", "foo.bar");
+        assert_module_name("foo/bar.pyi", "foo.bar");
+        assert_module_name("foo/bar.ipynb", "foo.bar");
+        assert_module_name("foo/bar/__init__.py", "foo.bar");
+        assert_module_name("foo/bar/__init__.pyi", "foo.bar");
+
+        fn assert_conversion_error(path: &str) {
+            assert!(ModuleName::from_relative_path(Path::new(path)).is_err());
+        }
+        assert_conversion_error("foo/bar.derp");
+        assert_conversion_error("foo/bar/baz");
+        assert_conversion_error("foo/bar/__init__.derp");
+    }
+
+    #[test]
+    fn test_from_relative_path_with_extra_extensions() {
+        let extra = vec!["cinc".to_owned(), "tw".to_owned(), "thrift".to_owned()];
+        assert_eq!(
+            ModuleName::from_relative_path_with_extra_extensions(
+                Path::new("foo/bar.cinc"),
+                &extra,
+            )
+            .unwrap(),
+            ModuleName::from_str("foo.bar.cinc")
+        );
+        assert_eq!(
+            ModuleName::from_relative_path_with_extra_extensions(Path::new("foo/bar.tw"), &extra,)
+                .unwrap(),
+            ModuleName::from_str("foo.bar.tw")
+        );
+        assert_eq!(
+            ModuleName::from_relative_path_with_extra_extensions(
+                Path::new("foo/bar.thrift"),
+                &extra,
+            )
+            .unwrap(),
+            ModuleName::from_str("foo.bar.thrift")
+        );
+        assert!(
+            ModuleName::from_relative_path_with_extra_extensions(
+                Path::new("foo/bar.derp"),
+                &extra,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn test_relative_module_name_between() {
+        fn assert_module_name(from: &str, to: &str, expected: &str) {
+            let from = Path::new(from);
+            let to = Path::new(to);
+            let actual = ModuleName::relative_module_name_between(from, to);
+            assert_eq!(Some(ModuleName::from_str(expected)), actual);
+        }
+        assert_module_name("foo/bar.py", "foo/baz.py", ".baz");
+        assert_module_name("bar.py", "foo/baz.py", ".foo.baz");
+        assert_module_name("foo/bar.py", "baz.py", "..baz");
+        assert_module_name("foo/bar/boz.py", "baz.py", "...baz");
+    }
+
+    #[test]
+    fn test_module_from_path() {
+        let includes = [PathBuf::from("/foo/bar")];
+        assert_eq!(
+            ModuleName::from_path(Path::new("/foo/bar/baz.py"), includes.iter(), &[]),
+            Some(ModuleName::from_str("baz"))
+        );
+        assert_eq!(
+            ModuleName::from_path(Path::new("/foo/bar/baz/qux.pyi"), includes.iter(), &[]),
+            Some(ModuleName::from_str("baz.qux"))
+        );
+        assert_eq!(
+            ModuleName::from_path(
+                Path::new("/foo/bar/baz/test/magic.py"),
+                includes.iter(),
+                &[]
+            ),
+            Some(ModuleName::from_str("baz.test.magic"))
+        );
+        assert_eq!(
+            ModuleName::from_path(Path::new("/foo/bar/baz/__init__.pyi"), includes.iter(), &[]),
+            Some(ModuleName::from_str("baz"))
+        );
+        assert_eq!(
+            ModuleName::from_path(Path::new("/test.py"), includes.iter(), &[]),
+            None
+        );
+        assert_eq!(
+            ModuleName::from_path(Path::new("/not_foo/test.py"), includes.iter(), &[]),
+            None
+        );
+    }
+
+    #[test]
+    fn test_module_from_path_extra_extensions() {
+        let includes = [PathBuf::from("/root")];
+        let extra = vec!["cinc".to_owned(), "cconf".to_owned(), "mcconf".to_owned()];
+        // Extra extension becomes part of the module name.
+        assert_eq!(
+            ModuleName::from_path(Path::new("/root/foo.cinc"), includes.iter(), &extra),
+            Some(ModuleName::from_str("foo.cinc"))
+        );
+        assert_eq!(
+            ModuleName::from_path(Path::new("/root/foo.cconf"), includes.iter(), &extra),
+            Some(ModuleName::from_str("foo.cconf"))
+        );
+        // Dots in the filename become module separators.
+        assert_eq!(
+            ModuleName::from_path(Path::new("/root/foo.bar.cinc"), includes.iter(), &extra),
+            Some(ModuleName::from_str("foo.bar.cinc"))
+        );
+        // Directory components work normally.
+        assert_eq!(
+            ModuleName::from_path(
+                Path::new("/root/service/config.cinc"),
+                includes.iter(),
+                &extra
+            ),
+            Some(ModuleName::from_str("service.config.cinc"))
+        );
+        assert_eq!(
+            ModuleName::from_path(
+                Path::new("/root/dir/sub/foo.bar.cinc"),
+                includes.iter(),
+                &extra
+            ),
+            Some(ModuleName::from_str("dir.sub.foo.bar.cinc"))
+        );
+        // Standard Python extensions still work with extra extensions configured.
+        assert_eq!(
+            ModuleName::from_path(Path::new("/root/foo.py"), includes.iter(), &extra),
+            Some(ModuleName::from_str("foo"))
+        );
+        assert_eq!(
+            ModuleName::from_path(Path::new("/root/foo/bar.pyi"), includes.iter(), &extra),
+            Some(ModuleName::from_str("foo.bar"))
+        );
+        // .pyi stubs for extra extensions: strip .pyi, keep the rest.
+        assert_eq!(
+            ModuleName::from_path(
+                Path::new("/root/service/types.cinc.pyi"),
+                includes.iter(),
+                &extra
+            ),
+            Some(ModuleName::from_str("service.types.cinc"))
+        );
+    }
+
+    #[test]
+    fn test_module_from_path_first_match_wins() {
+        // from_path uses first-match semantics. Callers pass paths in priority
+        // order: explicit search paths, then site-package paths, then heuristic
+        // paths like import_root.
+        let project_root = PathBuf::from("/project");
+        let site_packages = PathBuf::from("/project/venv/lib/python3.13/site-packages");
+
+        // With site-packages before project root, the file resolves correctly.
+        let site_pkg_first = [site_packages.clone(), project_root.clone()];
+        assert_eq!(
+            ModuleName::from_path(
+                Path::new("/project/venv/lib/python3.13/site-packages/fastapi/__init__.py"),
+                site_pkg_first.iter(),
+                &[]
+            ),
+            Some(ModuleName::from_str("fastapi"))
+        );
+
+        // Even with project root first, the file still resolves to `fastapi`.
+        // The project-root match would pass through `python3.13` (a dotted
+        // directory), which is not a valid package component, so that include
+        // is rejected and resolution falls through to site-packages.
+        let root_first = [project_root.clone(), site_packages.clone()];
+        assert_eq!(
+            ModuleName::from_path(
+                Path::new("/project/venv/lib/python3.13/site-packages/fastapi/__init__.py"),
+                root_first.iter(),
+                &[]
+            ),
+            Some(ModuleName::from_str("fastapi"))
+        );
+
+        // User's own source still resolves from the project root regardless
+        // of order, since it's not under site-packages.
+        assert_eq!(
+            ModuleName::from_path(
+                Path::new("/project/myapp/main.py"),
+                site_pkg_first.iter(),
+                &[]
+            ),
+            Some(ModuleName::from_str("myapp.main"))
+        );
+    }
+
+    #[test]
+    fn test_is_python_identifier() {
+        assert!(is_python_identifier("foo"));
+        assert!(is_python_identifier("_bar"));
+        assert!(is_python_identifier("class"));
+        assert!(is_python_identifier("a·b"));
+        assert!(is_python_identifier("a\u{301}"));
+        assert!(is_python_identifier("℘"));
+        assert!(!is_python_identifier(""));
+        assert!(!is_python_identifier("3.13"));
+        assert!(!is_python_identifier("pkg-v1"));
+        assert!(!is_python_identifier("123"));
+        assert!(!is_python_identifier("a²"));
+        assert!(!is_python_identifier("has space"));
+        assert!(!is_python_identifier("\u{345}foo"));
+    }
+
+    #[test]
+    fn test_path_parts_form_valid_module_name() {
+        assert!(path_parts_form_valid_module_name(&["foo", "bar"], false));
+        assert!(!path_parts_form_valid_module_name(
+            &["python3.13", "site-packages"],
+            false
+        ));
+        assert!(!path_parts_form_valid_module_name(
+            &["pkg-v1", "inner"],
+            false
+        ));
+        assert!(!path_parts_form_valid_module_name(&["pkg.v1"], true));
+        // Extra-extension files: only the stem of the filename must be valid.
+        assert!(path_parts_form_valid_module_name(
+            &["service", "config.cinc"],
+            false
+        ));
+        // A filename whose stem is not a valid identifier is rejected.
+        assert!(!path_parts_form_valid_module_name(
+            &["service", "1config.cinc"],
+            false
+        ));
+        assert!(!path_parts_form_valid_module_name(&["pkg-bad"], false));
+        assert!(!path_parts_form_valid_module_name(
+            &["service", "with space"],
+            false
+        ));
+    }
+
+    #[test]
+    fn test_module_from_path_dotted_directory() {
+        // A directory whose literal name contains `.` cannot be a Python
+        // package, so it must never be joined into a module name. An include
+        // that would do so is skipped in favour of a more specific include.
+        let outer = PathBuf::from("/outer");
+        let inner = PathBuf::from("/outer/pkg.v1");
+
+        // Outer-only: the dotted directory has no valid module name, so the
+        // file is treated as not on the search path rather than getting the
+        // bogus name `pkg.v1.inner.data`.
+        assert_eq!(
+            ModuleName::from_path(
+                Path::new("/outer/pkg.v1/inner/data.py"),
+                [&outer].into_iter(),
+                &[]
+            ),
+            None
+        );
+
+        // With the inner (more specific) include available, resolution falls
+        // through to it and yields the correct name even when the outer,
+        // dotted include is listed first.
+        let outer_first = [outer.clone(), inner.clone()];
+        assert_eq!(
+            ModuleName::from_path(
+                Path::new("/outer/pkg.v1/inner/data.py"),
+                outer_first.iter(),
+                &[]
+            ),
+            Some(ModuleName::from_str("inner.data"))
+        );
+
+        // An `__init__.py` inside a dotted directory is likewise rejected:
+        // every component of the parent path is a directory and must be valid.
+        assert_eq!(
+            ModuleName::from_path(
+                Path::new("/outer/pkg.v1/inner/__init__.py"),
+                [&outer].into_iter(),
+                &[]
+            ),
+            None
+        );
+
+        // Hyphens in a directory name are not valid Python identifiers.
+        assert_eq!(
+            ModuleName::from_path(
+                Path::new("/outer/pkg-v1/inner/data.py"),
+                [&outer].into_iter(),
+                &[]
+            ),
+            None
+        );
+
+        // A filename whose stem is not a valid identifier is also rejected.
+        assert_eq!(
+            ModuleName::from_path(
+                Path::new("/outer/pkg/inner/bad-name.py"),
+                [&outer].into_iter(),
+                &[]
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn test_module_from_path_stubs_suffix() {
+        // PEP 561: `-stubs` suffix on the top-level directory should be stripped.
+        let includes = [PathBuf::from("/sp")];
+        let assert_module_name = |path: &str, expected: &str| {
+            assert_eq!(
+                ModuleName::from_path(Path::new(path), includes.iter(), &[]),
+                Some(ModuleName::from_str(expected))
+            );
+        };
+
+        assert_module_name("/sp/scipy-stubs/stats/foo.pyi", "scipy.stats.foo");
+        assert_module_name("/sp/scipy-stubs/__init__.pyi", "scipy");
+
+        // Non-top-level `-stubs` should not be stripped (use a valid identifier
+        // so the path is not rejected for other reasons).
+        assert_module_name("/sp/pkg/nested_stubs/foo.py", "pkg.nested_stubs.foo");
+
+        // Plain package without `-stubs` is unchanged.
+        assert_module_name("/sp/scipy/stats/foo.py", "scipy.stats.foo");
+    }
+}

@@ -1,0 +1,465 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+use std::hash::Hash;
+use std::marker::PhantomData;
+use std::sync::Arc;
+
+use compact_str::CompactString;
+use dupe::Dupe;
+use pyrefly_python::module_name::ModuleName;
+use pyrefly_python::module_path::ModulePath;
+use pyrefly_python::module_path::ModuleStyle;
+use pyrefly_python::qname::QName;
+use pyrefly_python::short_identifier::ShortIdentifier;
+use pyrefly_util::uniques::Unique;
+use ruff_python_ast::name::Name;
+use ruff_text_size::TextRange;
+use starlark_map::Hashed;
+use starlark_map::ordered_map::OrderedMap;
+use starlark_map::ordered_set::OrderedSet;
+use starlark_map::small_map::Entry;
+use starlark_map::small_map::SmallMap;
+use starlark_map::small_set::SmallSet;
+use vec1::Vec1;
+
+use crate::param_spec::ParamSpec;
+use crate::quantified::QuantifiedIdentity;
+use crate::sentinel::Sentinel;
+use crate::type_var::TypeVar;
+use crate::type_var_tuple::TypeVarTuple;
+
+/// Compare a set of types using the same context.
+/// This will enable unique's to match, so important to use a single context
+/// for all type comparisons.
+#[derive(Debug, Default)]
+pub struct TypeEqCtx {
+    /// These Var's on the LHS are equal to those on the RHS
+    unique: SmallMap<Unique, Unique>,
+    /// These are Arc values we have previously declared to be equal.
+    /// Important we cache them as otherwise on an enum with N field,
+    /// we have N class equalities, and the cost of a class equality includes
+    /// comparing the field names stored inside the class. That makes it O(N^2).
+    arcs: SmallSet<(*const (), *const ())>,
+    // Things that have identity
+    param_spec: SmallMap<ParamSpec, ParamSpec>,
+    type_var: SmallMap<TypeVar, TypeVar>,
+    type_var_tuple: SmallMap<TypeVarTuple, TypeVarTuple>,
+    sentinel: SmallMap<Sentinel, Sentinel>,
+    /// Alpha-equivalence mapping for Quantified binders: LHS identity → RHS identity.
+    /// First pairing wins; subsequent occurrences must match.
+    quantified_identity: SmallMap<QuantifiedIdentity, QuantifiedIdentity>,
+}
+
+impl TypeEq for Unique {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        if self == other {
+            // NOTE(grievejia): Let's avoid having trivial identities pollute the mapping context
+            // There were some evidences that not doing so caused quantified types to be compared
+            // unequal unexpectedly.
+            true
+        } else {
+            match ctx.unique.entry(*self) {
+                Entry::Occupied(e) => e.get() == other,
+                Entry::Vacant(e) => {
+                    e.insert(*other);
+                    true
+                }
+            }
+        }
+    }
+}
+
+impl TypeEq for QuantifiedIdentity {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        if self == other {
+            // Identical identities — trivially alpha-equivalent; avoid polluting the map.
+            true
+        } else {
+            match ctx.quantified_identity.entry(self.clone()) {
+                Entry::Occupied(e) => e.get() == other,
+                Entry::Vacant(e) => {
+                    e.insert(other.clone());
+                    true
+                }
+            }
+        }
+    }
+}
+
+fn type_eq_identity<T>(
+    x: &T,
+    y: &T,
+    ctx: &mut TypeEqCtx,
+    map: impl Fn(&mut TypeEqCtx) -> &mut SmallMap<T, T>,
+    eq: impl FnOnce(&mut TypeEqCtx) -> bool,
+) -> bool
+where
+    T: Dupe + Eq + Hash,
+{
+    if let Some(res) = map(ctx).get(x) {
+        return res == y;
+    }
+    if !eq(ctx) {
+        return false;
+    }
+    map(ctx).insert(x.dupe(), y.dupe());
+    true
+}
+
+impl TypeEq for ParamSpec {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        type_eq_identity(
+            self,
+            other,
+            ctx,
+            |ctx| &mut ctx.param_spec,
+            |ctx| self.type_eq_inner(other, ctx),
+        )
+    }
+}
+
+impl TypeEq for TypeVar {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        type_eq_identity(
+            self,
+            other,
+            ctx,
+            |ctx| &mut ctx.type_var,
+            |ctx| self.type_eq_inner(other, ctx),
+        )
+    }
+}
+
+impl TypeEq for TypeVarTuple {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        type_eq_identity(
+            self,
+            other,
+            ctx,
+            |ctx| &mut ctx.type_var_tuple,
+            |ctx| self.type_eq_inner(other, ctx),
+        )
+    }
+}
+
+impl TypeEq for Sentinel {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        type_eq_identity(
+            self,
+            other,
+            ctx,
+            |ctx| &mut ctx.sentinel,
+            |ctx| self.type_eq_inner(other, ctx),
+        )
+    }
+}
+
+pub trait TypeEq: Eq {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        let _ = ctx;
+        self == other
+    }
+}
+
+impl TypeEq for () {}
+impl TypeEq for bool {}
+impl TypeEq for char {}
+impl TypeEq for i8 {}
+impl TypeEq for i16 {}
+impl TypeEq for i32 {}
+impl TypeEq for i64 {}
+impl TypeEq for i128 {}
+impl TypeEq for isize {}
+impl TypeEq for u8 {}
+impl TypeEq for u16 {}
+impl TypeEq for u32 {}
+impl TypeEq for u64 {}
+impl TypeEq for u128 {}
+impl TypeEq for usize {}
+impl TypeEq for String {}
+impl TypeEq for CompactString {}
+impl TypeEq for str {}
+
+impl<T> TypeEq for PhantomData<T> {}
+
+impl TypeEq for Name {}
+impl TypeEq for ModuleName {}
+impl TypeEq for ModulePath {}
+impl TypeEq for ModuleStyle {}
+impl TypeEq for TextRange {}
+impl TypeEq for ShortIdentifier {}
+
+impl TypeEq for QName {
+    fn type_eq(&self, other: &Self, _: &mut TypeEqCtx) -> bool {
+        self.id() == other.id()
+            && self.module_name() == other.module_name()
+            && self.module_path() == other.module_path()
+    }
+}
+
+impl<T0: TypeEq, T1: TypeEq> TypeEq for (T0, T1) {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        self.0.type_eq(&other.0, ctx) && self.1.type_eq(&other.1, ctx)
+    }
+}
+
+impl<T0: TypeEq, T1: TypeEq, T2: TypeEq> TypeEq for (T0, T1, T2) {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        self.0.type_eq(&other.0, ctx)
+            && self.1.type_eq(&other.1, ctx)
+            && self.2.type_eq(&other.2, ctx)
+    }
+}
+
+impl<T: TypeEq> TypeEq for Vec<T> {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        self.as_slice().type_eq(other.as_slice(), ctx)
+    }
+}
+
+impl<T: TypeEq> TypeEq for Vec1<T> {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        self.as_slice().type_eq(other.as_slice(), ctx)
+    }
+}
+
+impl<T: TypeEq> TypeEq for [T] {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        self.len() == other.len()
+            && self
+                .iter()
+                .zip(other.iter())
+                .all(|(a, b)| a.type_eq(b, ctx))
+    }
+}
+
+impl<T: TypeEq + ?Sized> TypeEq for &T {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        (*self).type_eq(*other, ctx)
+    }
+}
+
+impl<T: TypeEq + ?Sized> TypeEq for Box<T> {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        self.as_ref().type_eq(other.as_ref(), ctx)
+    }
+}
+
+impl<T: TypeEq + ?Sized> TypeEq for Arc<T> {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        if Arc::ptr_eq(self, other) {
+            return true;
+        }
+        let key = Hashed::new((
+            Arc::as_ptr(self) as *const (),
+            Arc::as_ptr(other) as *const (),
+        ));
+        if ctx.arcs.contains_hashed(key.as_ref()) {
+            return true;
+        }
+        let res = self.as_ref().type_eq(other.as_ref(), ctx);
+        if res {
+            ctx.arcs.insert_hashed(key);
+        }
+        res
+    }
+}
+
+impl<T: TypeEq> TypeEq for Option<T> {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        match (self, other) {
+            (Some(a), Some(b)) => a.type_eq(b, ctx),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+}
+
+impl<K: TypeEq, V: TypeEq> TypeEq for OrderedMap<K, V> {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        self.len() == other.len()
+            && self
+                .iter()
+                .zip(other.iter())
+                .all(|(a, b)| a.type_eq(&b, ctx))
+    }
+}
+
+impl<T: TypeEq> TypeEq for OrderedSet<T> {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        self.len() == other.len()
+            && self
+                .iter()
+                .zip(other.iter())
+                .all(|(a, b)| a.type_eq(b, ctx))
+    }
+}
+
+impl<K: TypeEq, V: TypeEq> TypeEq for SmallMap<K, V> {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        self.len() == other.len()
+            && self
+                .iter()
+                .zip(other.iter())
+                .all(|(a, b)| a.type_eq(&b, ctx))
+    }
+}
+
+impl<T: TypeEq> TypeEq for SmallSet<T> {
+    fn type_eq(&self, other: &Self, ctx: &mut TypeEqCtx) -> bool {
+        self.len() == other.len()
+            && self
+                .iter()
+                .zip(other.iter())
+                .all(|(a, b)| a.type_eq(b, ctx))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pyrefly_derive::TypeEq;
+    use pyrefly_python::module_name::ModuleName;
+    use ruff_text_size::TextRange;
+
+    use super::*;
+    use crate::callable::Callable;
+    use crate::callable::ParamList;
+    use crate::function::FuncFlags;
+    use crate::function::FuncMetadata;
+    use crate::function::Function;
+    use crate::function::FunctionKind;
+    use crate::heap::TypeHeap;
+    use crate::quantified::AnchorIndex;
+    use crate::quantified::Quantified;
+    use crate::quantified::QuantifiedIdentity;
+    use crate::quantified::QuantifiedKind;
+    use crate::quantified::QuantifiedOrigin;
+    use crate::type_var::PreInferenceVariance;
+    use crate::type_var::Restriction;
+    use crate::types::Forallable;
+    use crate::types::TParams;
+    use crate::types::Type;
+
+    #[derive(TypeEq, PartialEq, Eq, Debug)]
+    struct Foo {
+        x: i32,
+        f: (Bar, Baz),
+    }
+
+    #[derive(TypeEq, PartialEq, Eq, Debug)]
+    struct Bar(i32, i32);
+
+    #[derive(TypeEq, PartialEq, Eq, Debug)]
+    enum Baz {
+        A,
+        B(bool, bool),
+        C { x: i32, y: i32 },
+    }
+
+    #[derive(TypeEq, PartialEq, Eq, Debug)]
+    struct Generic<T>(T);
+
+    #[derive(TypeEq, PartialEq, Eq, Debug)]
+    enum WithLifetime<'t> {
+        #[allow(dead_code)]
+        Unused(std::marker::PhantomData<&'t ()>),
+        Value(i32),
+    }
+
+    #[test]
+    fn test_type_eq() {
+        let mut ctx = TypeEqCtx::default();
+        assert!(
+            Foo {
+                x: 1,
+                f: (Bar(1, 2), Baz::A)
+            }
+            .type_eq(
+                &Foo {
+                    x: 1,
+                    f: (Bar(1, 2), Baz::A)
+                },
+                &mut ctx
+            )
+        );
+        assert!(
+            !Foo {
+                x: 1,
+                f: (Bar(1, 2), Baz::C { x: 1, y: 2 })
+            }
+            .type_eq(
+                &Foo {
+                    x: 1,
+                    f: (Bar(1, 2), Baz::B(true, false))
+                },
+                &mut ctx
+            )
+        );
+        assert!(
+            !Foo {
+                x: 1,
+                f: (Bar(1, 2), Baz::A)
+            }
+            .type_eq(
+                &Foo {
+                    x: 1,
+                    f: (Bar(1, 3), Baz::A)
+                },
+                &mut ctx
+            )
+        );
+        assert!(Generic(1).type_eq(&Generic(1), &mut ctx));
+        assert!(!Generic(1).type_eq(&Generic(2), &mut ctx));
+
+        assert!(WithLifetime::Value(1).type_eq(&WithLifetime::Value(1), &mut ctx));
+        assert!(!WithLifetime::Value(1).type_eq(&WithLifetime::Value(2), &mut ctx));
+        assert!(
+            !WithLifetime::Value(1)
+                .type_eq(&WithLifetime::Unused(std::marker::PhantomData), &mut ctx)
+        );
+    }
+
+    #[test]
+    fn test_equal_forall() {
+        let heap = TypeHeap::new();
+
+        fn mk_function(heap: &TypeHeap, ordinal: u32) -> Type {
+            let q = Quantified::new(
+                QuantifiedIdentity::new(
+                    ModuleName::from_str("__test__"),
+                    AnchorIndex::new(TextRange::default(), ordinal),
+                    QuantifiedOrigin::Pep695,
+                ),
+                Name::new_static("test"),
+                QuantifiedKind::TypeVar,
+                None,
+                Restriction::Unrestricted,
+                PreInferenceVariance::Invariant,
+            );
+
+            let tparams = TParams::new(vec![q.clone()]);
+
+            Forallable::Function(Function {
+                signature: Callable::list(ParamList::everything(), q.clone().to_type(heap)),
+                metadata: FuncMetadata {
+                    kind: FunctionKind::Overload,
+                    flags: FuncFlags::default(),
+                },
+            })
+            .forall(Arc::new(tparams))
+        }
+
+        let a = mk_function(&heap, 0);
+        let b = mk_function(&heap, 1);
+        assert_eq!(a, a);
+        assert_ne!(a, b);
+
+        assert!(a.type_eq(&a, &mut TypeEqCtx::default()));
+        assert!(a.type_eq(&b, &mut TypeEqCtx::default()));
+    }
+}

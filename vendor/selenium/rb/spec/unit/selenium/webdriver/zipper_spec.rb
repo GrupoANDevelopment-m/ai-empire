@@ -1,0 +1,127 @@
+# frozen_string_literal: true
+
+# Licensed to the Software Freedom Conservancy (SFC) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The SFC licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+require_relative 'spec_helper'
+
+module Selenium
+  module WebDriver
+    describe Zipper do
+      let(:base_file_name) { 'file.txt' }
+      let(:file_content)   { 'content' }
+      let(:tmp_dir)        { Dir.mktmpdir('webdriver-spec-zip') }
+      let(:zip_file)       { File.join(tmp_dir, 'test.zip') }
+      let(:dir_to_zip)     { Dir.mktmpdir('webdriver-spec-zipper') }
+
+      def create_file
+        filename = File.join(dir_to_zip, base_file_name)
+        File.open(filename, 'w') { |io| io << file_content }
+
+        filename
+      end
+
+      after { FileUtils.rm_rf tmp_dir }
+
+      describe '#zip' do
+        it 'a folder' do
+          create_file
+
+          File.open(zip_file, 'wb') do |io|
+            io << Base64.decode64(described_class.zip(dir_to_zip))
+          end
+
+          expect(File).to exist(zip_file)
+        end
+
+        it 'follows symlinks' do
+          filename = create_file
+          File.symlink(filename, File.join(dir_to_zip, 'link'))
+
+          File.open(zip_file, 'wb') do |io|
+            io << Base64.decode64(described_class.zip(dir_to_zip))
+          end
+
+          unzipped = described_class.unzip(zip_file)
+          expect(File.read(File.join(unzipped, 'link'))).to eq(file_content)
+        end
+      end
+
+      describe '#zip_root' do
+        it 'wraps a file as a single top-level entry' do
+          File.open(zip_file, 'wb') do |io|
+            io << Base64.decode64(described_class.zip_root(create_file))
+          end
+
+          unzipped = described_class.unzip(zip_file)
+          expect(Dir.children(unzipped)).to eq([base_file_name])
+        end
+
+        it 'wraps a directory as a single top-level folder named for it' do
+          create_file
+
+          File.open(zip_file, 'wb') do |io|
+            io << Base64.decode64(described_class.zip_root(dir_to_zip))
+          end
+
+          unzipped = described_class.unzip(zip_file)
+          expect(Dir.children(unzipped)).to eq([File.basename(dir_to_zip)])
+          expect(File.read(File.join(unzipped, File.basename(dir_to_zip), base_file_name))).to eq(file_content)
+        end
+
+        it 'keeps the folder name when the path has a trailing separator' do
+          create_file
+
+          File.open(zip_file, 'wb') do |io|
+            io << Base64.decode64(described_class.zip_root("#{dir_to_zip}/"))
+          end
+
+          unzipped = described_class.unzip(zip_file)
+          expect(Dir.children(unzipped)).to eq([File.basename(dir_to_zip)])
+        end
+      end
+
+      describe '#zip_file' do
+        it 'is a backwards-compatible alias for #zip_root' do
+          expect(described_class.method(:zip_file)).to eq(described_class.method(:zip_root))
+        end
+      end
+
+      describe '#unzip' do
+        it 'a file' do
+          File.open(zip_file, 'wb') do |io|
+            io << Base64.decode64(described_class.zip_root(create_file))
+          end
+
+          unzipped = described_class.unzip(zip_file)
+          expect(File.read(File.join(unzipped, base_file_name))).to eq(file_content)
+        end
+
+        it 'a folder' do
+          create_file
+
+          File.open(zip_file, 'wb') do |io|
+            io << Base64.decode64(described_class.zip(dir_to_zip))
+          end
+
+          unzipped = described_class.unzip(zip_file)
+          expect(File.read(File.join(unzipped, base_file_name))).to eq(file_content)
+        end
+      end
+    end # Zipper
+  end # WebDriver
+end # Selenium

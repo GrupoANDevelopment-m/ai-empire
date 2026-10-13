@@ -1,0 +1,140 @@
+name: Create wheel
+
+on:
+  # run when a release has been created
+  release:
+    types: [created]
+  # push:
+  #   branches:
+  #     - "go_wheel_*"
+
+permissions:
+  id-token: write
+  contents: write
+
+# env:
+#   # comment TWINE_REPOSITORY_URL to use the real pypi. NOTE: change also the secret used in TWINE_PASSWORD
+#   TWINE_REPOSITORY_URL: https://test.pypi.org/legacy/
+
+jobs:
+  build_wheels:
+    name: ${{ matrix.wheel_mode }} wheels ${{ matrix.python }} on ${{ matrix.os }} ${{ matrix.os == 'ubuntu-22.04' && matrix.linux_archs || '' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # emulated wheels on linux take too much time, split wheels into multiple runs
+        python:
+          - "cp311-* cp312-*"
+          - "cp313-* cp314-*"
+          - "cp315-*"
+          - "cp314t-* cp315t-*"
+        wheel_mode:
+          - compiled
+        os:
+          - "windows-2022"
+          - "windows-11-arm"
+          - "macos-15"
+          - "ubuntu-22.04"
+          - "ubuntu-22.04-arm"
+        linux_archs:
+          # this is only meaningful on linux. windows and macos ignore exclude all but one arch
+          - "aarch64"
+          - "x86_64"
+          - "riscv64"
+
+        include:
+          # create pure python build
+          - os: ubuntu-22.04
+            wheel_mode: pure-python
+            python: "cp-314*"
+
+        exclude:
+          - os: "windows-2022"
+            linux_archs: "aarch64"
+          # ignored on windows, just avoid to run it multiple times
+          - os: "windows-11-arm"
+            linux_archs: "aarch64"
+          - os: "macos-15"
+            linux_archs: "x86_64"
+          - os: "ubuntu-22.04"
+            linux_archs: "aarch64"
+          - os: "ubuntu-22.04-arm"
+            linux_archs: "x86_64"
+          - os: "windows-2022"
+            linux_archs: "riscv64"
+          - os: "windows-11-arm"
+            linux_archs: "riscv64"
+          - os: "macos-15"
+            linux_archs: "riscv64"
+          - os: "ubuntu-22.04-arm"
+            linux_archs: "riscv64"
+
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # See details at https://cibuildwheel.readthedocs.io/en/stable/faq/#emulation
+      - name: Set up QEMU
+        if: matrix.linux_archs == 'riscv64'
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: riscv64
+
+      - name: Build compiled wheels
+        if: ${{ matrix.wheel_mode == 'compiled' }}
+        uses: pypa/cibuildwheel@v4.2.1
+        env:
+          CIBW_ARCHS_LINUX: ${{ matrix.linux_archs }}
+          CIBW_BUILD: ${{ matrix.python }}
+          # setting it here does not work on linux
+          # PYTHONNOUSERSITE: "1"
+
+
+      - name: Set up Python for pure-python wheel
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Build pure-python wheel
+        if: ${{ matrix.wheel_mode == 'pure-python' && runner.os == 'Linux' }}
+        run: |
+          python -m pip install --upgrade pip
+          pip --version
+          pip install build
+          pip list
+          DISABLE_SQLALCHEMY_CEXT=y python -m build --wheel --outdir ./wheelhouse
+
+      # - uses: actions/upload-artifact@v3
+      #   with:
+      #     path: ./wheelhouse/*.whl
+
+      - name: Upload wheels to release
+        # upload the generated wheels to the github release
+        continue-on-error: true
+        uses: sqlalchemyorg/upload-release-assets@sa
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          files: './wheelhouse/*.whl'
+
+      - name: Generate attestations
+        id: attestations
+        continue-on-error: true
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          python -m pip install pypi-attestations
+          python -m pypi_attestations sign ./wheelhouse/*
+
+      - name: Publish wheel
+        shell: bash
+        run: |
+          python -m pip install "twine>=6.2.0"
+          if [[ "${{ steps.attestations.outcome }}" == "success" ]]; then
+            python -m twine upload --skip-existing --attestations ./wheelhouse/*
+          else
+            python -m twine upload --skip-existing ./wheelhouse/*
+          fi

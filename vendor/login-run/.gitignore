@@ -1,0 +1,12 @@
+.env
+.env.*
+.auth/
+node_modules/
+temp/
+
+## keep script logs at local
+.log/
+
+## temporal recovery
+.recovery-metadata/
+.recovery-partials/

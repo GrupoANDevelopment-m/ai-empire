@@ -1,0 +1,12 @@
+project: 'Python client'
+products:
+  - id: elasticsearch-client
+cross_links:
+  - apm-agent-python
+  - docs-content
+  - elasticsearch
+toc:
+  - toc: reference
+  - toc: release-notes
+subs:
+  es:   "Elasticsearch"

@@ -1,0 +1,63 @@
+/*-----------------------------------------------------------------------------
+| Copyright (c) Jupyter Development Team.
+|
+| Distributed under the terms of the Modified BSD License.
+|----------------------------------------------------------------------------*/
+
+.jp-FileBrowser-toolbar .jp-Toolbar-item.jp-DropdownMenu,
+.jp-FileBrowser-toolbar .jp-Toolbar-item.jp-ToolbarButton,
+.jp-FileBrowser-toolbar .jp-Toolbar-item.jp-CommandToolbarButton {
+  border: solid 1px var(--jp-border-color2);
+  margin: 1px;
+  padding: 0px;
+}
+
+.jp-FileBrowser-toolbar > .jp-Toolbar-item.jp-ToolbarButton:hover,
+.jp-FileBrowser-toolbar > .jp-Toolbar-item.jp-CommandToolbarButton:hover,
+.jp-FileBrowser-toolbar > .jp-Toolbar-item.jp-DropdownMenu:hover {
+  background: var(--neutral-fill-stealth-hover);
+}
+
+.jp-FileBrowser-toolbar .lm-MenuBar-item {
+  height: var(--jp-private-toolbar-height);
+  display: inline-flex;
+  align-items: center;
+}
+
+.jp-FileBrowser-toolbar .jp-ToolbarButtonComponent {
+  height: var(--jp-flat-button-height);
+}
+
+.jp-FileBrowser-toolbar jp-button.jp-ToolbarButtonComponent:hover {
+  background: inherit;
+}
+
+.jp-DirListing-content .jp-DirListing-checkboxWrapper {
+  visibility: visible;
+}
+
+/* Action buttons */
+
+.jp-FileBrowser-toolbar > .jp-FileAction > .jp-ToolbarButtonComponent > svg {
+  display: none;
+}
+
+.jp-FileBrowser-toolbar > #fileAction-delete {
+  background-color: var(--jp-error-color1);
+}
+
+.jp-FileBrowser-toolbar
+  .jp-ToolbarButtonComponent[data-command='filebrowser:delete']
+  .jp-ToolbarButtonComponent-label {
+  color: var(--jp-ui-inverse-font-color1);
+}
+
+.jp-FileBrowser-toolbar .jp-FileAction {
+  border: solid 1px var(--jp-border-color2);
+  margin: 1px;
+  min-height: var(--jp-private-toolbar-height);
+}
+
+body[data-format='mobile'] #fileAction-placeholder {
+  display: none;
+}

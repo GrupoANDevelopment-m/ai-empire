@@ -1,0 +1,280 @@
+import abc
+from _typeshed import Incomplete
+from collections.abc import Iterator, Sequence
+from typing import Any, ClassVar, Generic, Literal, Self, SupportsIndex, overload
+from typing_extensions import TypeIs, TypeVar
+
+import numpy as np
+import numpy.typing as npt
+from numpy._typing import (
+    _ArrayLikeComplex_co,
+    _ArrayLikeFloat_co,
+    _FloatLike_co,
+    _NestedSequence,
+    _NumberLike_co,
+    _Shape,
+)
+
+from ._polytypes import (
+    _AnyInt,
+    _ArrayLikeCoef_co,
+    _ArrayLikeCoefObject_co,
+    _CoefLike_co,
+    _CoefSeries,
+    _Series,
+    _SeriesLikeCoef_co,
+    _SeriesLikeInt_co,
+    _Tuple2,
+)
+
+__all__ = ["ABCPolyBase"]
+
+_NameT_co = TypeVar("_NameT_co", bound=str | None, default=str | None, covariant=True)
+
+type _AnyOther = ABCPolyBase | _CoefLike_co | _SeriesLikeCoef_co
+
+###
+
+class ABCPolyBase(Generic[_NameT_co], abc.ABC):  # noqa: UP046
+    __hash__: ClassVar[None] = None  # type: ignore[assignment]  # pyright: ignore[reportIncompatibleMethodOverride]
+    __array_ufunc__: ClassVar[None] = None
+    maxpower: ClassVar[Literal[100]] = 100
+
+    _superscript_mapping: ClassVar[dict[int, str]] = ...
+    _subscript_mapping: ClassVar[dict[int, str]] = ...
+    _use_unicode: ClassVar[bool] = ...
+
+    _symbol: str
+    @property
+    def symbol(self, /) -> str: ...
+    @property
+    @abc.abstractmethod
+    def domain(self) -> np.ndarray[tuple[int], np.dtype[np.float64 | Any]]: ...
+    @property
+    @abc.abstractmethod
+    def window(self) -> np.ndarray[tuple[int], np.dtype[np.float64 | Any]]: ...
+    @property
+    @abc.abstractmethod
+    def basis_name(self) -> _NameT_co: ...
+
+    coef: _Series[np.float64 | Any]
+
+    def __init__(
+        self,
+        /,
+        coef: _SeriesLikeCoef_co | _CoefLike_co,
+        domain: _SeriesLikeCoef_co | None = None,
+        window: _SeriesLikeCoef_co | None = None,
+        symbol: str = "x",
+    ) -> None: ...
+
+    #
+    @overload  # T
+    def __call__[PolyT: ABCPolyBase](self, /, arg: PolyT) -> PolyT: ...
+    @overload  # Nd +f64
+    def __call__[ShapeT: _Shape](
+        self,
+        /,
+        arg: np.ndarray[ShapeT, np.dtype[np.floating | np.integer | np.bool]],
+    ) -> np.ndarray[ShapeT, np.dtype[np.float64 | Incomplete]]: ...
+    @overload  # Nd +c128
+    def __call__[ShapeT: _Shape](
+        self,
+        /,
+        arg: np.ndarray[ShapeT, np.dtype[np.complexfloating]],
+    ) -> np.ndarray[ShapeT, np.dtype[np.complex128 | Incomplete]]: ...
+    @overload  # Nd ~object_
+    def __call__[ShapeT: _Shape](
+        self,
+        /,
+        arg: np.ndarray[ShapeT, np.dtype[np.object_]],
+    ) -> np.ndarray[ShapeT, np.dtype[np.object_]]: ...
+    @overload  # 0d +f64
+    def __call__(self, /, arg: _FloatLike_co) -> np.float64 | Incomplete: ...
+    @overload  # 0d +c128
+    def __call__(self, /, arg: _NumberLike_co) -> np.complex128 | Incomplete: ...
+    @overload  # 1d +f64
+    def __call__(self, /, arg: Sequence[_FloatLike_co]) -> _Series[np.float64 | Incomplete]: ...
+    @overload  # 1d +c128
+    def __call__(self, /, arg: Sequence[_NumberLike_co]) -> _Series[np.complex128 | Incomplete]: ...
+    @overload  # ?d +f64
+    def __call__(self, /, arg: _NestedSequence[_ArrayLikeFloat_co]) -> npt.NDArray[np.float64 | Incomplete]: ...
+    @overload  # ?d +c128
+    def __call__(self, /, arg: _NestedSequence[_ArrayLikeComplex_co]) -> npt.NDArray[np.complex128 | Incomplete]: ...
+    @overload  # ?d ~object_
+    def __call__(self, /, arg: _ArrayLikeCoefObject_co) -> npt.NDArray[np.object_]: ...
+    @overload  # ?d  (fallback)
+    def __call__(self, /, arg: _ArrayLikeComplex_co) -> npt.NDArray[Any] | Any: ...
+
+    # unary ops
+    def __neg__(self, /) -> Self: ...
+    def __pos__(self, /) -> Self: ...
+
+    # binary ops
+    def __add__(self, x: _AnyOther, /) -> Self: ...
+    def __sub__(self, x: _AnyOther, /) -> Self: ...
+    def __mul__(self, x: _AnyOther, /) -> Self: ...
+    def __pow__(self, x: _AnyOther, /) -> Self: ...
+    def __truediv__(self, x: _AnyOther, /) -> Self: ...
+    def __floordiv__(self, x: _AnyOther, /) -> Self: ...
+    def __mod__(self, x: _AnyOther, /) -> Self: ...
+    def __divmod__(self, x: _AnyOther, /) -> _Tuple2[Self]: ...
+
+    # reflected binary ops
+    def __radd__(self, x: _AnyOther, /) -> Self: ...
+    def __rsub__(self, x: _AnyOther, /) -> Self: ...
+    def __rmul__(self, x: _AnyOther, /) -> Self: ...
+    def __rtruediv__(self, x: _AnyOther, /) -> Self: ...
+    def __rfloordiv__(self, x: _AnyOther, /) -> Self: ...
+    def __rmod__(self, x: _AnyOther, /) -> Self: ...
+    def __rdivmod__(self, x: _AnyOther, /) -> _Tuple2[Self]: ...
+
+    # iterable and sized
+    def __len__(self, /) -> int: ...
+    def __iter__(self, /) -> Iterator[np.float64 | Any]: ...
+
+    # pickling
+    def __getstate__(self, /) -> dict[str, Any]: ...
+    def __setstate__(self, dict: dict[str, Any], /) -> None: ...
+
+    #
+    def has_samecoef(self, /, other: ABCPolyBase) -> bool: ...
+    def has_samedomain(self, /, other: ABCPolyBase) -> bool: ...
+    def has_samewindow(self, /, other: ABCPolyBase) -> bool: ...
+    def has_sametype(self, /, other: object) -> TypeIs[Self]: ...
+
+    #
+    def copy(self, /) -> Self: ...
+    def degree(self, /) -> int: ...
+    def cutdeg(self, /, deg: int) -> Self: ...
+    def trim(self, /, tol: _FloatLike_co = 0) -> Self: ...
+    def truncate(self, /, size: _AnyInt) -> Self: ...
+
+    #
+    @overload
+    def convert[PolyT: ABCPolyBase](
+        self,
+        /,
+        domain: _SeriesLikeCoef_co | None,
+        kind: type[PolyT],
+        window: _SeriesLikeCoef_co | None = None,
+    ) -> PolyT: ...
+    @overload
+    def convert[PolyT: ABCPolyBase](
+        self,
+        /,
+        domain: _SeriesLikeCoef_co | None = None,
+        *,
+        kind: type[PolyT],
+        window: _SeriesLikeCoef_co | None = None,
+    ) -> PolyT: ...
+    @overload
+    def convert(
+        self,
+        /,
+        domain: _SeriesLikeCoef_co | None = None,
+        kind: None = None,
+        window: _SeriesLikeCoef_co | None = None,
+    ) -> Self: ...
+
+    #
+    def mapparms(self, /) -> _Tuple2[Any]: ...
+    def integ(
+        self,
+        /,
+        m: SupportsIndex = 1,
+        k: _CoefLike_co | _SeriesLikeCoef_co = [],
+        lbnd: _CoefLike_co | None = None,
+    ) -> Self: ...
+    def deriv(self, /, m: SupportsIndex = 1) -> Self: ...
+    def roots(self, /) -> _CoefSeries: ...
+    def linspace(
+        self,
+        /,
+        n: SupportsIndex = 100,
+        domain: _SeriesLikeCoef_co | None = None,
+    ) -> _Tuple2[_Series[np.float64 | Any]]: ...
+
+    #
+    @overload
+    @classmethod
+    def fit(
+        cls,
+        x: _SeriesLikeCoef_co,
+        y: _SeriesLikeCoef_co,
+        deg: int | _SeriesLikeInt_co,
+        domain: _SeriesLikeCoef_co | None = None,
+        rcond: _FloatLike_co | None = None,
+        full: Literal[False] = False,
+        w: _SeriesLikeCoef_co | None = None,
+        window: _SeriesLikeCoef_co | None = None,
+        symbol: str = "x",
+    ) -> Self: ...
+    @overload
+    @classmethod
+    def fit(
+        cls,
+        x: _SeriesLikeCoef_co,
+        y: _SeriesLikeCoef_co,
+        deg: int | _SeriesLikeInt_co,
+        domain: _SeriesLikeCoef_co | None = None,
+        rcond: _FloatLike_co | None = None,
+        *,
+        full: Literal[True],
+        w: _SeriesLikeCoef_co | None = None,
+        window: _SeriesLikeCoef_co | None = None,
+        symbol: str = "x",
+    ) -> tuple[Self, Sequence[np.inexact | np.int32]]: ...
+    @overload
+    @classmethod
+    def fit(
+        cls,
+        x: _SeriesLikeCoef_co,
+        y: _SeriesLikeCoef_co,
+        deg: int | _SeriesLikeInt_co,
+        domain: _SeriesLikeCoef_co | None,
+        rcond: _FloatLike_co,
+        full: Literal[True],
+        /,
+        w: _SeriesLikeCoef_co | None = None,
+        window: _SeriesLikeCoef_co | None = None,
+        symbol: str = "x",
+    ) -> tuple[Self, Sequence[np.inexact | np.int32]]: ...
+
+    #
+    @classmethod
+    def fromroots(
+        cls,
+        roots: _ArrayLikeCoef_co,
+        domain: _SeriesLikeCoef_co | None = [],
+        window: _SeriesLikeCoef_co | None = None,
+        symbol: str = "x",
+    ) -> Self: ...
+    @classmethod
+    def identity(
+        cls,
+        domain: _SeriesLikeCoef_co | None = None,
+        window: _SeriesLikeCoef_co | None = None,
+        symbol: str = "x",
+    ) -> Self: ...
+    @classmethod
+    def basis(
+        cls,
+        deg: _AnyInt,
+        domain: _SeriesLikeCoef_co | None = None,
+        window: _SeriesLikeCoef_co | None = None,
+        symbol: str = "x",
+    ) -> Self: ...
+    @classmethod
+    def cast(
+        cls,
+        series: ABCPolyBase,
+        domain: _SeriesLikeCoef_co | None = None,
+        window: _SeriesLikeCoef_co | None = None,
+    ) -> Self: ...
+    @classmethod
+    def _str_term_unicode(cls, /, i: str, arg_str: str) -> str: ...
+    @classmethod
+    def _str_term_ascii(cls, /, i: str, arg_str: str) -> str: ...
+    @classmethod
+    def _repr_latex_term(cls, /, i: str, arg_str: str, needs_parens: bool) -> str: ...

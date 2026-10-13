@@ -1,0 +1,843 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+from __future__ import annotations
+
+import logging
+from contextlib import suppress
+from functools import partial
+from typing import TYPE_CHECKING, Annotated
+from uuid import UUID
+
+import attrs
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request, Response, status
+from pydantic import JsonValue
+from sqlalchemy import select
+from sqlalchemy.sql.selectable import Select
+
+from airflow.api_fastapi.common.dagbag import DagBagDep
+from airflow.api_fastapi.common.db.common import SessionDep
+from airflow.api_fastapi.core_api.base import BaseModel
+from airflow.api_fastapi.core_api.openapi.exceptions import create_openapi_http_exception_doc
+from airflow.api_fastapi.execution_api.datamodels.xcom import (
+    XComResponse,
+    XComSequenceIndexResponse,
+    XComSequenceSliceResponse,
+)
+from airflow.api_fastapi.execution_api.security import CurrentTIToken
+from airflow.api_fastapi.execution_api.versions.v2026_10_30 import IdentifyArchivedTaskStateUpdates
+from airflow.exceptions import TaskNotFound
+from airflow.models.dagrun import DagRun, InvalidLoopDecision, validate_loop_decision
+from airflow.models.dynamic_region import (
+    LOOP_DECISION_KEY,
+    LOOP_XCOM_PREFIX,
+    SENTINEL_REGION_ID,
+    AmbiguousProducerError,
+    build_loop_sequence_order,
+)
+from airflow.models.task_coordinates import (
+    TaskCoordinateResolver,
+    build_coordinate_filters,
+    enclosing_loop,
+)
+from airflow.models.taskinstance import TaskInstance
+from airflow.models.xcom import XCOM_RETURN_KEY, XComModel, xcom_entity
+from airflow.utils.db import get_query_count
+from airflow.utils.state import TaskInstanceState
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+    from sqlalchemy.orm.util import AliasedClass
+    from sqlalchemy.sql.elements import ColumnElement
+
+    from airflow.api_fastapi.execution_api.datamodels.token import TIToken
+    from airflow.models.dagbag import DBDagBag
+
+
+def has_xcom_access(
+    dag_id: str,
+    run_id: str,
+    task_id: str,
+    xcom_key: Annotated[str, Path(alias="key", min_length=1)],
+    request: Request,
+    session: SessionDep,
+    token=CurrentTIToken,
+) -> bool:
+    """
+    Check whether the requesting task may access the XCom for ``dag_id``.
+
+    In multi-team mode, XCom access is scoped by team ownership (resolved via the
+    ``dag -> bundle -> team`` chain). There is no cross-team XCom sharing:
+
+    * reads (``GET``/``HEAD``) are allowed for the requester's own team or for
+      global (teamless) dags;
+    * writes and deletes are allowed only for the requester's own team; a team
+      task may not mutate a global dag's XCom, mirroring how team-scoped
+      Variables and Connections behave.
+
+    When multi-team mode is disabled this is a no-op and all access is allowed,
+    consistent with Airflow's single-team security model where workers within a
+    deployment trust each other. Note this enforces the boundary at the Execution
+    API only; it does not constrain code paths with direct database access (e.g.
+    the Dag File Processor or Triggerer).
+    """
+    from airflow.configuration import conf
+
+    write = request.method not in {"GET", "HEAD", "OPTIONS"}
+
+    log.debug(
+        "Checking %s XCom access for task instance '%s' to XCom '%s' on dag '%s'",
+        "write" if write else "read",
+        token.id,
+        xcom_key,
+        dag_id,
+    )
+
+    if not conf.getboolean("core", "multi_team"):
+        return True
+
+    from airflow.api_fastapi.execution_api.security import (
+        _team_name_for_dag_stmt,
+        _team_name_for_ti_stmt,
+    )
+
+    requester_team = session.scalar(_team_name_for_ti_stmt(token.id))
+    target_team = session.scalar(_team_name_for_dag_stmt(dag_id))
+
+    # Same team (including a teamless task accessing a global, teamless dag) is always allowed.
+    if target_team == requester_team:
+        return True
+    # Reads may additionally reach global (teamless) dags; writes and deletes may not.
+    if not write and target_team is None:
+        return True
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "reason": "access_denied",
+            "message": "Task does not have access to this XCom in multi-team mode",
+        },
+    )
+
+
+router = APIRouter(
+    responses={
+        status.HTTP_401_UNAUTHORIZED: {"description": "Unauthorized"},
+        status.HTTP_403_FORBIDDEN: {"description": "Task does not have access to the XCom"},
+        status.HTTP_404_NOT_FOUND: {"description": "XCom not found"},
+    },
+    dependencies=[Depends(has_xcom_access)],
+)
+
+log = logging.getLogger(__name__)
+
+
+@attrs.frozen
+class _XComRead:
+    """The XCom rows a read selects, and whether they are the executions of a loop task seen from outside it."""
+
+    statement: Select
+    loop_sequence: bool = False
+
+    def get_order(self, entity: AliasedClass, *, descending: bool = False) -> tuple[ColumnElement, ...]:
+        """Order the rows by their place in the sequence the read returns, or reverse that order."""
+        columns = (
+            build_loop_sequence_order(entity.region_id, entity.region_index)
+            if self.loop_sequence
+            else (entity.map_index,)
+        )
+        return tuple(column.desc() if descending else column.asc() for column in columns)
+
+
+def _build_xcom_read(
+    *,
+    dag_id: str,
+    run_id: str,
+    task_id: str,
+    key: str,
+    session: Session,
+    dag_bag: DBDagBag,
+    token: TIToken,
+    map_index: int | None = None,
+    include_prior_dates: bool = False,
+    previous_iteration: bool = False,
+    sequence: bool = False,
+) -> _XComRead:
+    """
+    Select the XCom rows of the producers visible to the calling task instance.
+
+    A ``sequence`` read returns several values in order. When it targets a loop task from outside that
+    loop, it covers every iteration of the task rather than the one a caller inside the loop would see.
+    """
+    resolver = TaskCoordinateResolver(dag_bag, session)
+    read = partial(
+        XComModel.get_many,
+        dag_ids=dag_id,
+        run_id=run_id,
+        task_ids=task_id,
+        key=key,
+        include_prior_dates=include_prior_dates,
+    )
+    try:
+        if previous_iteration and include_prior_dates:
+            raise ValueError("previous_iteration cannot be combined with prior dates")
+        if not previous_iteration and not resolver.has_regions(
+            dag_id, None if include_prior_dates else run_id, task_id
+        ):
+            return _XComRead(read(region_id=SENTINEL_REGION_ID, map_indexes=map_index))
+        caller = session.get(TaskInstance, token.id)
+        if include_prior_dates:
+            task = None
+            if session.scalar(select(DagRun.id).where(DagRun.dag_id == dag_id, DagRun.run_id == run_id)):
+                with suppress(TaskNotFound):
+                    task = resolver.get_task(
+                        dag_id,
+                        run_id,
+                        task_id,
+                        dag_version_id=caller.dag_version_id
+                        if caller and (caller.dag_id, caller.run_id) == (dag_id, run_id)
+                        else None,
+                    )
+            if task is not None and enclosing_loop(task) is not None:
+                raise ValueError("Prior-date lookups are not supported for tasks inside a loop")
+            return _XComRead(
+                read(region_id=SENTINEL_REGION_ID, include_node_regions=True, map_indexes=map_index)
+            )
+        loop_sequence = sequence and resolver.is_loop_task_read_from_outside(
+            dag_id=dag_id, run_id=run_id, task_id=task_id, caller=caller
+        )
+        return _XComRead(
+            XComModel.get_many(
+                run_id=run_id,
+                key=key,
+                producer_ids=resolver.select_producer_ids(
+                    dag_id=dag_id,
+                    run_id=run_id,
+                    task_id=task_id,
+                    caller=caller,
+                    map_indexes=map_index,
+                    previous_iteration=previous_iteration,
+                    all_iterations=loop_sequence,
+                ),
+            ),
+            loop_sequence=loop_sequence,
+        )
+    except AmbiguousProducerError as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(error)) from error
+
+
+def xcom_query(
+    dag_id: str,
+    run_id: str,
+    task_id: str,
+    key: str,
+    session: SessionDep,
+    dag_bag: DagBagDep,
+    map_index: Annotated[int | None, Query()] = None,
+    previous_iteration: bool = False,
+    token=CurrentTIToken,
+) -> Select:
+    return _build_xcom_read(
+        dag_id=dag_id,
+        run_id=run_id,
+        task_id=task_id,
+        key=key,
+        session=session,
+        dag_bag=dag_bag,
+        token=token,
+        map_index=map_index,
+        previous_iteration=previous_iteration,
+        sequence=True,
+    ).statement
+
+
+@router.get(
+    "/{dag_id}/{run_id}/{task_id}/{key:path}/item/{offset}",
+    responses=create_openapi_http_exception_doc(
+        [
+            (status.HTTP_400_BAD_REQUEST, "The request selects an invalid combination of producers"),
+            (status.HTTP_409_CONFLICT, "Several live task instances produce the requested value"),
+        ]
+    ),
+    description="Get a single XCom value from a mapped task by sequence index",
+)
+def get_mapped_xcom_by_index(
+    dag_id: str,
+    run_id: str,
+    task_id: str,
+    key: Annotated[str, Path(min_length=1)],
+    offset: int,
+    session: SessionDep,
+    dag_bag: DagBagDep,
+    previous_iteration: bool = False,
+    token=CurrentTIToken,
+) -> XComSequenceIndexResponse:
+    xcom_read = _build_xcom_read(
+        dag_id=dag_id,
+        run_id=run_id,
+        task_id=task_id,
+        key=key,
+        session=session,
+        dag_bag=dag_bag,
+        token=token,
+        previous_iteration=previous_iteration,
+        sequence=True,
+    )
+    entity = xcom_entity(xcom_read.statement)
+    xcom_query = xcom_read.statement.order_by(None)
+    if offset >= 0:
+        xcom_query = xcom_query.order_by(*xcom_read.get_order(entity)).offset(offset)
+    else:
+        xcom_query = xcom_query.order_by(*xcom_read.get_order(entity, descending=True)).offset(-1 - offset)
+
+    result: tuple[XComModel] | None
+    if (result := session.scalars(xcom_query.limit(1)).first()) is None:
+        message = (
+            f"XCom with {key=} {offset=} not found for task {task_id!r} in DAG run {run_id!r} of {dag_id!r}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"reason": "not_found", "message": message},
+        )
+    return XComSequenceIndexResponse((result[0] if isinstance(result, tuple) else result).value)
+
+
+class GetXComSliceFilterParams(BaseModel):
+    """Class to house slice params."""
+
+    start: int | None = None
+    stop: int | None = None
+    step: int | None = None
+    include_prior_dates: bool = False
+    previous_iteration: bool = False
+
+
+def _get_sliced_query_or_empty(query: Select, low: int, high: int) -> Select:
+    if high <= low:
+        return query.limit(0)
+    return query.slice(low, high)
+
+
+@router.get(
+    "/{dag_id}/{run_id}/{task_id}/{key:path}/slice",
+    responses=create_openapi_http_exception_doc(
+        [
+            (status.HTTP_400_BAD_REQUEST, "The request selects an invalid combination of producers"),
+            (status.HTTP_409_CONFLICT, "Several live task instances produce the requested value"),
+        ]
+    ),
+    description="Get XCom values from a mapped task by sequence slice",
+)
+def get_mapped_xcom_by_slice(
+    dag_id: str,
+    run_id: str,
+    task_id: str,
+    key: Annotated[str, Path(min_length=1)],
+    params: Annotated[GetXComSliceFilterParams, Query()],
+    session: SessionDep,
+    dag_bag: DagBagDep,
+    token=CurrentTIToken,
+) -> XComSequenceSliceResponse:
+    xcom_read = _build_xcom_read(
+        dag_id=dag_id,
+        run_id=run_id,
+        task_id=task_id,
+        key=key,
+        session=session,
+        dag_bag=dag_bag,
+        token=token,
+        include_prior_dates=params.include_prior_dates,
+        previous_iteration=params.previous_iteration,
+        sequence=True,
+    )
+    entity = xcom_entity(xcom_read.statement)
+    query = xcom_read.statement.order_by(None)
+    ascending, descending = xcom_read.get_order(entity), xcom_read.get_order(entity, descending=True)
+
+    step = params.step or 1
+
+    # We want to optimize negative slicing (e.g. seq[-10:]) by not doing an
+    # additional COUNT query if possible. This is possible unless both start and
+    # stop are explicitly given and have different signs.
+    if (start := params.start) is None:
+        if (stop := params.stop) is None:
+            if step >= 0:
+                query = query.order_by(*ascending)
+            else:
+                query = query.order_by(*descending)
+                step = -step
+        elif stop >= 0:
+            query = query.order_by(*ascending)
+            if step >= 0:
+                query = query.limit(stop)
+            else:
+                query = query.offset(stop + 1)
+        else:
+            query = query.order_by(*descending)
+            step = -step
+            if step > 0:
+                query = query.limit(-stop - 1)
+            else:
+                query = query.offset(-stop)
+    elif start >= 0:
+        query = query.order_by(*ascending)
+        if (stop := params.stop) is None:
+            if step >= 0:
+                query = query.offset(start)
+            else:
+                query = query.limit(start + 1)
+        else:
+            if stop < 0:
+                stop += get_query_count(query, session=session)
+            if step >= 0:
+                query = _get_sliced_query_or_empty(query, start, stop)
+            else:
+                query = _get_sliced_query_or_empty(query, stop + 1, start + 1)
+    else:
+        query = query.order_by(*descending)
+        step = -step
+        if (stop := params.stop) is None:
+            if step > 0:
+                query = query.offset(-start - 1)
+            else:
+                query = query.limit(-start)
+        else:
+            if stop >= 0:
+                stop -= get_query_count(query, session=session)
+            if step > 0:
+                query = _get_sliced_query_or_empty(query, -1 - start, -1 - stop)
+            else:
+                query = _get_sliced_query_or_empty(query, -stop, -start)
+
+    values = [row.value for row in session.execute(query.with_only_columns(entity.value)).all()]
+    if step != 1:
+        values = values[::step]
+    return XComSequenceSliceResponse(values)
+
+
+@router.head(
+    "/{dag_id}/{run_id}/{task_id}/{key:path}",
+    responses={
+        **create_openapi_http_exception_doc(
+            [(status.HTTP_400_BAD_REQUEST, "map_index cannot be specified in a HEAD request")]
+        ),
+        status.HTTP_200_OK: {
+            "description": "Metadata about the number of matching XCom values",
+            "headers": {
+                "Content-Range": {
+                    "schema": {"pattern": r"^map_indexes \d+$"},
+                    "description": "The number of (mapped) XCom values found for this task.",
+                },
+            },
+        },
+    },
+    description="Returns the count of mapped XCom values found in the `Content-Range` response header",
+)
+def head_xcom(
+    response: Response,
+    session: SessionDep,
+    xcom_query: Annotated[Select, Depends(xcom_query)],
+    map_index: Annotated[int | None, Query()] = None,
+) -> None:
+    """Get the count of XComs from database - not other XCom Backends."""
+    if map_index is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"reason": "invalid_request", "message": "Cannot specify map_index in a HEAD request"},
+        )
+
+    count = get_query_count(xcom_query, session=session)
+    # Tell the caller how many items in this query. We define a custom range unit (HTTP spec only defines
+    # "bytes" but we can add our own)
+    response.headers["Content-Range"] = f"map_indexes {count}"
+
+
+class GetXcomFilterParams(BaseModel):
+    """Class to house the params that can optionally be set for Get XCom."""
+
+    map_index: int = -1
+    include_prior_dates: bool = False
+    offset: int | None = None
+    previous_iteration: bool = False
+
+
+@router.get(
+    "/{dag_id}/{run_id}/{task_id}/{key:path}",
+    responses=create_openapi_http_exception_doc(
+        [
+            (status.HTTP_400_BAD_REQUEST, "The request selects an invalid combination of producers"),
+            (status.HTTP_409_CONFLICT, "Several live task instances produce the requested value"),
+        ]
+    ),
+    description="Get a single XCom Value",
+)
+def get_xcom(
+    dag_id: str,
+    run_id: str,
+    task_id: str,
+    key: Annotated[str, Path(min_length=1)],
+    session: SessionDep,
+    params: Annotated[GetXcomFilterParams, Query()],
+    dag_bag: DagBagDep,
+    token=CurrentTIToken,
+) -> XComResponse:
+    """Get an Airflow XCom from database - not other XCom Backends."""
+    owner = session.execute(
+        select(TaskInstance.id, TaskInstance.working_set)
+        .where(
+            TaskInstance.id == token.id,
+            TaskInstance.dag_id == dag_id,
+            TaskInstance.run_id == run_id,
+            TaskInstance.task_id == task_id,
+            *build_coordinate_filters(TaskInstance, map_index=params.map_index),
+        )
+        .limit(1)
+        .execution_options(include_all_attempts=True)
+    ).first()
+    if (
+        owner is not None
+        and owner.working_set is None
+        and not params.include_prior_dates
+        and params.offset is None
+    ):
+        identify_archived = IdentifyArchivedTaskStateUpdates.is_applied
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE if identify_archived else status.HTTP_404_NOT_FOUND,
+            detail={
+                "reason": "not_found",
+                "message": (
+                    "Task Instance not found in the working set; its attempt has been archived"
+                    if identify_archived
+                    else "Task Instance not found"
+                ),
+            },
+        )
+    xcom_read = _build_xcom_read(
+        dag_id=dag_id,
+        run_id=run_id,
+        task_id=task_id,
+        key=key,
+        session=session,
+        dag_bag=dag_bag,
+        token=token,
+        map_index=params.map_index if params.offset is None else None,
+        include_prior_dates=params.include_prior_dates,
+        previous_iteration=params.previous_iteration,
+        sequence=params.offset is not None,
+    )
+    entity = xcom_entity(xcom_read.statement)
+    xcom_query = xcom_read.statement
+    if params.offset is not None:
+        xcom_query = xcom_query.where(entity.value.is_not(None)).order_by(None)
+        if params.offset >= 0:
+            xcom_query = xcom_query.order_by(*xcom_read.get_order(entity)).offset(params.offset)
+        else:
+            xcom_query = xcom_query.order_by(*xcom_read.get_order(entity, descending=True)).offset(
+                -1 - params.offset
+            )
+
+    # We use `BaseXCom.get_many` to fetch XComs directly from the database, bypassing the XCom Backend.
+    # This avoids deserialization via the backend (e.g., from a remote storage like S3) and instead
+    # retrieves the raw serialized value from the database. By not relying on `XCom.get_many` or `XCom.get_one`
+    # (which automatically deserializes using the backend), we avoid potential
+    # performance hits from retrieving large data files into the API server.
+    result: tuple[XComModel] | None
+    if (result := session.scalars(xcom_query.limit(1)).first()) is None:
+        if params.offset is None:
+            message = (
+                f"XCom with {key=} map_index={params.map_index} not found for "
+                f"task {task_id!r} in DAG run {run_id!r} of {dag_id!r}"
+            )
+        else:
+            message = (
+                f"XCom with {key=} offset={params.offset} not found for "
+                f"task {task_id!r} in DAG run {run_id!r} of {dag_id!r}"
+            )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"reason": "not_found", "message": message},
+        )
+
+    return XComResponse(key=key, value=(result[0] if isinstance(result, tuple) else result).value)
+
+
+# TODO: once we have JWT tokens, then remove dag_id/run_id/task_id from the URL and just use the info in
+# the token
+@router.post(
+    "/{dag_id}/{run_id}/{task_id}/{key:path}",
+    status_code=status.HTTP_201_CREATED,
+    responses=create_openapi_http_exception_doc(
+        [
+            (
+                status.HTTP_400_BAD_REQUEST,
+                "The key is empty, the value is too large to map, or is unserializable",
+            ),
+            (
+                status.HTTP_409_CONFLICT,
+                "Several live task instances match the producer, or the loop gate is no longer running",
+            ),
+        ]
+    ),
+)
+def set_xcom(
+    dag_id: str,
+    run_id: str,
+    task_id: str,
+    key: Annotated[str, Path(min_length=1)],
+    session: SessionDep,
+    dag_bag: DagBagDep,
+    value: Annotated[
+        JsonValue,
+        Body(
+            description="A JSON-formatted string representing the value to set for the XCom.",
+            openapi_examples={
+                "simple_value": {
+                    "summary": "Simple value",
+                    "value": '"value1"',
+                },
+                "dict_value": {
+                    "summary": "Dictionary value",
+                    "value": '{"key2": "value2"}',
+                },
+                "list_value": {
+                    "summary": "List value",
+                    "value": '["value1"]',
+                },
+            },
+        ),
+    ] = None,
+    map_index: Annotated[int, Query()] = -1,
+    dag_result: Annotated[bool, Query(description="Whether this XCom is a dag result")] = False,
+    mapped_length: Annotated[
+        int | None, Query(ge=0, description="Number of mapped tasks this value expands into")
+    ] = None,
+    token=CurrentTIToken,
+):
+    """Set an Airflow XCom."""
+    from airflow.configuration import conf
+
+    region_id: UUID | None = None
+    region_index: int | None = None
+    if key == LOOP_DECISION_KEY:
+        caller = session.get(TaskInstance, token.id)
+        if (
+            value not in ("continue", "stop")
+            or mapped_length is not None
+            or dag_result
+            or map_index != -1
+            or caller is None
+            or (dag_id, run_id, task_id) != (caller.dag_id, caller.run_id, caller.task_id)
+        ):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid loop decision write")
+        session.execute(
+            select(DagRun)
+            .where(DagRun.dag_id == caller.dag_id, DagRun.run_id == caller.run_id)
+            .with_for_update()
+        ).scalar_one()
+        caller = session.scalar(
+            select(TaskInstance)
+            .where(TaskInstance.id == token.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if caller is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Loop gate is no longer running")
+        loop = TaskCoordinateResolver(dag_bag, session).loop_context(caller)
+        if loop is None or loop[0].gate_task_id != caller.task_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Loop decisions require the pinned loop gate")
+        if caller.state != TaskInstanceState.RUNNING or caller.working_set is not True:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Loop gate is no longer running")
+        try:
+            validate_loop_decision(value, caller.region_index, loop[0])
+        except InvalidLoopDecision as error:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(error)) from error
+        region_id, region_index = caller.region_id, caller.region_index
+    elif key.startswith(LOOP_XCOM_PREFIX):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Reserved loop XCom key")
+
+    # Validate that the provided key is not empty
+    # XCom keys must be non-empty strings to ensure proper data retrieval and avoid ambiguity.
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "reason": "invalid_key",
+                "message": "XCom key must be a non-empty string.",
+            },
+        )
+
+    if mapped_length is not None:
+        # The scheduler only ever reads a length off the return value, so any other key is write-only.
+        if key != XCOM_RETURN_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "reason": "invalid_mapped_length_key",
+                    "message": f"mapped_length is only valid for the {XCOM_RETURN_KEY!r} key.",
+                },
+            )
+        max_map_length = conf.getint("core", "max_map_length", fallback=1024)
+        if mapped_length > max_map_length:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "reason": "unmappable_return_value_length",
+                    "message": "pushed value is too large to map as a downstream's dependency",
+                },
+            )
+
+    # else:
+    # TODO: Can/should we check if a client _hasn't_ provided this for an upstream of a mapped task? That
+    # means loading the serialized dag and that seems like a relatively costly operation for minimal benefit
+    # (the mapped task would fail in a moment as it can't be expanded anyway.)
+    try:
+        # We expect serialised value from the caller - sdk, do not serialise in here
+        XComModel.set_for_attempt(
+            key=key,
+            value=value,
+            task_instance_id=_get_writer_id(
+                token.id,
+                dag_id=dag_id,
+                run_id=run_id,
+                task_id=task_id,
+                map_index=map_index,
+                region_id=region_id,
+                region_index=region_index,
+                session=session,
+            ),
+            serialize=False,
+            dag_result=dag_result,
+            mapped_length=mapped_length,
+            session=session,
+        )
+    except ValueError as e:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(e))
+    except TypeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "reason": "invalid_format",
+                "message": f"XCom value is not a valid JSON: {e}",
+            },
+        )
+
+    return {"message": "XCom successfully set"}
+
+
+@router.delete(
+    "/{dag_id}/{run_id}/{task_id}/{key:path}",
+    responses={
+        **create_openapi_http_exception_doc(
+            [(status.HTTP_409_CONFLICT, "Several live task instances match the producer")]
+        ),
+        status.HTTP_404_NOT_FOUND: {"description": "XCom not found"},
+    },
+    description="Delete a single XCom Value",
+)
+def delete_xcom(
+    session: SessionDep,
+    dag_id: str,
+    run_id: str,
+    task_id: str,
+    key: Annotated[str, Path(min_length=1)],
+    map_index: Annotated[int, Query()] = -1,
+    token=CurrentTIToken,
+):
+    """Delete a single XCom Value."""
+    owner = _find_writer_id(
+        token.id,
+        dag_id=dag_id,
+        run_id=run_id,
+        task_id=task_id,
+        map_index=map_index,
+        session=session,
+    )
+    if owner is not None:
+        XComModel.delete_for_attempts(
+            producer_ids=select(TaskInstance.id).where(TaskInstance.id == owner),
+            key=key,
+            session=session,
+        )
+    return {"message": f"XCom with key: {key} successfully deleted."}
+
+
+def _find_writer_id(
+    attempt_id: UUID,
+    *,
+    dag_id: str,
+    run_id: str,
+    task_id: str,
+    map_index: int,
+    region_id: UUID | None = None,
+    region_index: int | None = None,
+    session: SessionDep,
+) -> UUID | None:
+    """Resolve the attempt a write targets: the caller's own, or the live attempt of another task."""
+    coordinates = (
+        TaskInstance.dag_id == dag_id,
+        TaskInstance.run_id == run_id,
+        TaskInstance.task_id == task_id,
+        *build_coordinate_filters(
+            TaskInstance, map_index=map_index, region_id=region_id, region_index=region_index
+        ),
+    )
+    own = session.scalar(
+        select(TaskInstance.id)
+        .where(TaskInstance.id == attempt_id, *coordinates)
+        .execution_options(include_all_attempts=True)
+    )
+    if own is not None:
+        return own
+    live = session.scalars(select(TaskInstance.id).where(*coordinates).limit(2)).all()
+    if len(live) > 1:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"More than one live task instance matches {dag_id}.{task_id} in run {run_id}; "
+            "a task inside a loop can only write XComs of its own attempt",
+        )
+    return live[0] if live else None
+
+
+def _get_writer_id(
+    attempt_id: UUID,
+    *,
+    dag_id: str,
+    run_id: str,
+    task_id: str,
+    map_index: int,
+    region_id: UUID | None = None,
+    region_index: int | None = None,
+    session: SessionDep,
+) -> UUID:
+    owner = _find_writer_id(
+        attempt_id,
+        dag_id=dag_id,
+        run_id=run_id,
+        task_id=task_id,
+        map_index=map_index,
+        region_id=region_id,
+        region_index=region_index,
+        session=session,
+    )
+    if owner is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail={"reason": "not_found", "message": f"Task Instance {task_id!r} not found in {run_id!r}"},
+        )
+    return owner

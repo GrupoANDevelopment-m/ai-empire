@@ -1,0 +1,129 @@
+import { useSuspenseQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { Suspense } from "react";
+import { buildGetArtifactQuery } from "@/api/artifacts";
+import { ArtifactDataView } from "@/components/artifacts/artifact/artifact-data-view";
+import { Button } from "@/components/ui/button";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
+import { FormattedDate } from "@/components/ui/formatted-date/formatted-date";
+import { Icon } from "@/components/ui/icons";
+import { KeyValue } from "@/components/ui/key-value";
+import {
+	Sheet,
+	SheetContent,
+	SheetHeader,
+	SheetTitle,
+} from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
+
+type FlowRunGraphArtifactDrawerProps = {
+	artifactId: string | null;
+	onClose: () => void;
+};
+
+export function FlowRunGraphArtifactDrawer({
+	artifactId,
+	onClose,
+}: FlowRunGraphArtifactDrawerProps) {
+	return (
+		<Sheet
+			open={artifactId !== null}
+			onOpenChange={(open) => !open && onClose()}
+		>
+			<SheetContent className="w-full overflow-y-auto sm:max-w-xl">
+				<SheetHeader>
+					<SheetTitle>Artifact Details</SheetTitle>
+				</SheetHeader>
+				{artifactId && (
+					<ErrorBoundary key={artifactId} fallback={<ArtifactContentError />}>
+						<Suspense fallback={<ArtifactContentSkeleton />}>
+							<ArtifactContent artifactId={artifactId} />
+						</Suspense>
+					</ErrorBoundary>
+				)}
+			</SheetContent>
+		</Sheet>
+	);
+}
+
+function ArtifactContentSkeleton() {
+	return (
+		<div className="space-y-4 p-4">
+			<Skeleton className="h-6 w-32" />
+			<Skeleton className="h-4 w-24" />
+			<Skeleton className="h-4 w-48" />
+			<Skeleton className="h-32 w-full" />
+		</div>
+	);
+}
+
+function ArtifactContentError() {
+	return (
+		<p className="p-4 text-sm text-muted-foreground">
+			This artifact could not be loaded.
+		</p>
+	);
+}
+
+function ArtifactContent({ artifactId }: { artifactId: string }) {
+	const { data: artifact } = useSuspenseQuery(
+		buildGetArtifactQuery(artifactId),
+	);
+
+	return (
+		<div className="space-y-4 p-4">
+			<KeyValue
+				label="Key"
+				value={
+					<p className="text-sm font-medium">{artifact.key ?? "Unnamed"}</p>
+				}
+			/>
+			{artifact.type && (
+				<KeyValue
+					label="Type"
+					value={<p className="text-sm uppercase">{artifact.type}</p>}
+				/>
+			)}
+			{artifact.description && (
+				<KeyValue
+					label="Description"
+					value={<p className="text-sm">{artifact.description}</p>}
+				/>
+			)}
+			{artifact.created && (
+				<KeyValue
+					label="Created"
+					value={<FormattedDate date={artifact.created} />}
+				/>
+			)}
+			{artifact.data !== undefined && artifact.data !== null && (
+				<div className="space-y-2">
+					<p className="text-sm text-muted-foreground">Data</p>
+					<ArtifactDataView
+						artifact={artifact}
+						fallback={
+							<pre className="bg-muted p-3 rounded-md text-sm overflow-auto max-h-64">
+								{typeof artifact.data === "string"
+									? artifact.data
+									: JSON.stringify(artifact.data, null, 2)}
+							</pre>
+						}
+					/>
+				</div>
+			)}
+			{artifact.id && (
+				<Button asChild variant="outline" size="sm">
+					<Link
+						to="/artifacts/artifact/$id"
+						params={{ id: artifact.id }}
+						target="_blank"
+						rel="noopener noreferrer"
+					>
+						Open artifact
+						<Icon id="ExternalLink" className="size-4" />
+					</Link>
+				</Button>
+			)}
+		</div>
+	);
+}

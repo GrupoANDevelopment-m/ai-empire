@@ -1,0 +1,12 @@
+name: notebook
+channels:
+  - conda-forge
+dependencies:
+  - ipywidgets=8
+  - jupyterlab=4
+  - jupyterlab-language-pack-fr-FR
+  - matplotlib
+  - numpy
+  - nodejs=20
+  - python >=3.11,<3.12
+  - xeus-python

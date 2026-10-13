@@ -1,0 +1,592 @@
+load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_run_binary")
+load("@aspect_rules_js//npm:defs.bzl", "npm_package")
+load("@aspect_rules_ts//ts:defs.bzl", "ts_project")
+load("@rules_closure//closure:defs.bzl", "closure_js_library")
+load("//javascript:defs.bzl", "closure_js_deps", "closure_test_suite")
+
+package(default_visibility = ["//visibility:public"])
+
+VERSION = "4.52.0-nightly202610091837"
+
+# These build tools are CommonJS; the .cjs extension keeps that true regardless
+# of the "type": "module" declared by the @selenium/atoms package.json above
+# them in this directory.
+js_binary(
+    name = "cjs_to_iife",
+    data = ["typescript/cjs-to-iife.cjs"],
+    entry_point = "typescript/cjs-to-iife.cjs",
+)
+
+js_binary(
+    name = "wrap_get_attribute_as_global",
+    data = ["typescript/wrap-get-attribute-as-global.cjs"],
+    entry_point = "typescript/wrap-get-attribute-as-global.cjs",
+)
+
+js_binary(
+    name = "wrap_as_global",
+    data = ["typescript/wrap-as-global.cjs"],
+    entry_point = "typescript/wrap-as-global.cjs",
+)
+
+js_binary(
+    name = "wrap_find_elements_as_global",
+    data = ["typescript/wrap-find-elements-as-global.cjs"],
+    entry_point = "typescript/wrap-find-elements-as-global.cjs",
+)
+
+# ── get-attribute ────────────────────────────────────────────────────────────
+
+ts_project(
+    name = "get-attribute-typescript-compiled",
+    srcs = ["typescript/get-attribute.ts"],
+    declaration = False,
+    source_map = False,
+    tsconfig = "typescript/tsconfig-get-attribute.json",
+)
+
+js_run_binary(
+    name = "get-attribute-typescript-generated",
+    srcs = [":typescript/get-attribute.js"],
+    outs = ["typescript/get-attribute.generated.js"],
+    args = [
+        "$(rootpath :typescript/get-attribute.js)",
+        "$(rootpath :typescript/get-attribute.generated.js)",
+    ],
+    tool = ":cjs_to_iife",
+)
+
+js_run_binary(
+    name = "get-attribute-global",
+    srcs = [":typescript/get-attribute.js"],
+    outs = ["typescript/get-attribute-global.js"],
+    args = [
+        "$(rootpath :typescript/get-attribute.js)",
+        "$(rootpath :typescript/get-attribute-global.js)",
+    ],
+    tool = ":wrap_get_attribute_as_global",
+)
+
+# ── find-elements ────────────────────────────────────────────────────────────
+
+ts_project(
+    name = "find-elements-typescript-compiled",
+    srcs = ["typescript/find-elements.ts"],
+    declaration = False,
+    source_map = False,
+    tsconfig = "typescript/tsconfig-find-elements.json",
+)
+
+js_run_binary(
+    name = "find-elements-typescript-generated",
+    srcs = [":typescript/find-elements.js"],
+    outs = ["typescript/find-elements.generated.js"],
+    args = [
+        "$(rootpath :typescript/find-elements.js)",
+        "$(rootpath :typescript/find-elements.generated.js)",
+    ],
+    tool = ":cjs_to_iife",
+)
+
+js_run_binary(
+    name = "find-elements-global",
+    srcs = [":typescript/find-elements.js"],
+    outs = ["typescript/find-elements-global.js"],
+    args = [
+        "$(rootpath :typescript/find-elements.js)",
+        "$(rootpath :typescript/find-elements-global.js)",
+    ],
+    tool = ":wrap_find_elements_as_global",
+)
+
+# ── is-displayed ─────────────────────────────────────────────────────────────
+
+ts_project(
+    name = "is-displayed-typescript-compiled",
+    srcs = ["typescript/is-displayed.ts"],
+    declaration = False,
+    source_map = False,
+    tsconfig = "typescript/tsconfig-is-displayed.json",
+)
+
+js_run_binary(
+    name = "is-displayed-typescript-generated",
+    srcs = [":typescript/is-displayed.js"],
+    outs = ["typescript/is-displayed.generated.js"],
+    args = [
+        "$(rootpath :typescript/is-displayed.js)",
+        "$(rootpath :typescript/is-displayed.generated.js)",
+    ],
+    tool = ":cjs_to_iife",
+)
+
+js_run_binary(
+    name = "is-displayed-global",
+    srcs = [":typescript/is-displayed.js"],
+    outs = ["typescript/is-displayed-global.js"],
+    args = [
+        "$(rootpath :typescript/is-displayed.js)",
+        "$(rootpath :typescript/is-displayed-global.js)",
+    ],
+    tool = ":wrap_as_global",
+)
+
+# ── @selenium/atoms npm package ──────────────────────────────────────────────
+
+ts_project(
+    name = "atoms-npm-compiled",
+    srcs = [
+        "index.ts",
+        "typescript/find-elements.ts",
+        "typescript/get-attribute.ts",
+        "typescript/is-displayed.ts",
+    ],
+    declaration = True,
+    declaration_map = True,
+    out_dir = "dist",
+    source_map = True,
+    tsconfig = "tsconfig.json",
+)
+
+# npm_package does not pick up filegroup sources.
+genrule(
+    name = "license",
+    srcs = ["//:license"],
+    outs = [
+        "LICENSE",
+        "NOTICE",
+    ],
+    cmd = "cp $(locations //:license) $(@D)",
+)
+
+npm_package(
+    name = "selenium-atoms-package",
+    srcs = [
+        # README.md in this directory is the contributor guide; the npm page
+        # gets its own file, renamed into place below.
+        "README.npm.md",
+        # Published so the emitted .d.ts.map / .js.map resolve for consumers.
+        "index.ts",
+        "package.json",
+        "typescript/find-elements.ts",
+        "typescript/get-attribute.ts",
+        "typescript/is-displayed.ts",
+        ":atoms-npm-compiled",
+        ":license",
+    ],
+    package = "@selenium/atoms",
+    publishable = True,
+    replace_prefixes = {"README.npm.md": "README.md"},
+    tags = ["release-artifact"],
+    version = VERSION,
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "atoms",
+    srcs = glob([
+        "**/*.cjs",
+        "**/*.html",
+        "**/*.jpg",
+        "**/*.js",
+        "**/*.png",
+        "**/*.svg",
+        "**/*.ts",
+    ]) + [":get-attribute-global"] + [":is-displayed-global"] + [":find-elements-global"],
+    visibility = [
+        "//dotnet/test:__subpackages__",
+        "//java/test/org/openqa/selenium/environment:__pkg__",
+        "//javascript/selenium-webdriver:__pkg__",
+    ],
+)
+
+closure_js_library(
+    name = "action",
+    srcs = ["action.js"],
+    suppress = [
+        "JSC_IMPLICITLY_NULLABLE_JSDOC",
+        "JSC_STRICT_INEXISTENT_PROPERTY",
+        "JSC_UNKNOWN_EXPR_TYPE",
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+    visibility = [
+        "//javascript/atoms/fragments:__pkg__",
+        "//javascript/selenium-atoms:__pkg__",
+        "//javascript/webdriver/atoms:__pkg__",
+        "//javascript/webdriver/atoms/inject:__pkg__",
+    ],
+    deps = [
+        ":bot",
+        ":devices",
+        ":dom",
+        ":errors",
+        ":events",
+        "//third_party/closure/goog/array",
+        "//third_party/closure/goog/dom:tagname",
+        "//third_party/closure/goog/math:coordinate",
+        "//third_party/closure/goog/math:vec2",
+        "//third_party/closure/goog/style",
+        "//third_party/closure/goog/useragent",
+        "//third_party/closure/goog/useragent:product",
+        "//third_party/closure/goog/utils",
+    ],
+)
+
+closure_js_library(
+    name = "bot",
+    srcs = ["bot.js"],
+    suppress = [
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+)
+
+closure_js_library(
+    name = "color",
+    srcs = ["color.js"],
+    suppress = [
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+    deps = [
+        "//third_party/closure/goog/array",
+        "//third_party/closure/goog/color:names",
+    ],
+)
+
+closure_js_library(
+    name = "devices",
+    srcs = [
+        "device.js",
+        "keyboard.js",
+        "mouse.js",
+        "touchscreen.js",
+    ],
+    suppress = [
+        "JSC_IMPLICITLY_NULLABLE_JSDOC",
+        "JSC_STRICT_INEXISTENT_PROPERTY",
+        "JSC_UNKNOWN_EXPR_TYPE",
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+    deps = [
+        ":bot",
+        ":dom",
+        ":errors",
+        ":events",
+        ":locators",
+        ":useragent",
+        "//third_party/closure/goog/array",
+        "//third_party/closure/goog/dom",
+        "//third_party/closure/goog/dom:selection",
+        "//third_party/closure/goog/dom:tagname",
+        "//third_party/closure/goog/math:coordinate",
+        "//third_party/closure/goog/structs:map",
+        "//third_party/closure/goog/structs:set",
+        "//third_party/closure/goog/useragent",
+        "//third_party/closure/goog/useragent:product",
+        "//third_party/closure/goog/utils",
+    ],
+)
+
+closure_js_library(
+    name = "domcore",
+    srcs = ["domcore.js"],
+    suppress = [
+        "JSC_IMPLICITLY_NULLABLE_JSDOC",
+        "JSC_STRICT_INEXISTENT_PROPERTY",
+        "JSC_UNKNOWN_EXPR_TYPE",
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+    deps = [
+        ":errors",
+        ":useragent",
+        "//third_party/closure/goog/array",
+        "//third_party/closure/goog/dom",
+        "//third_party/closure/goog/dom:nodetype",
+        "//third_party/closure/goog/dom:tagname",
+    ],
+)
+
+closure_js_library(
+    name = "dom",
+    srcs = ["dom.js"],
+    suppress = [
+        "JSC_DEPRECATED_PROP",
+        "JSC_IMPLICITLY_NULLABLE_JSDOC",
+        "JSC_STRICT_INEXISTENT_PROPERTY",
+        "JSC_UNKNOWN_EXPR_TYPE",
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+    deps = [
+        ":bot",
+        ":color",
+        ":css",
+        ":domcore",
+        ":json",
+        ":useragent",
+        "//third_party/closure/goog/array",
+        "//third_party/closure/goog/dom",
+        "//third_party/closure/goog/dom:nodetype",
+        "//third_party/closure/goog/dom:tagname",
+        "//third_party/closure/goog/math",
+        "//third_party/closure/goog/math:coordinate",
+        "//third_party/closure/goog/math:rect",
+        "//third_party/closure/goog/string",
+        "//third_party/closure/goog/style",
+        "//third_party/closure/goog/useragent",
+    ],
+)
+
+closure_js_library(
+    name = "errors",
+    srcs = [
+        "error.js",
+        "response.js",
+    ],
+    suppress = [
+        "JSC_IMPLICITLY_NULLABLE_JSDOC",
+        "JSC_STRICT_INEXISTENT_PROPERTY",
+        "JSC_UNKNOWN_EXPR_TYPE",
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+    deps = [
+        "//third_party/closure/goog/utils",
+    ],
+)
+
+closure_js_library(
+    name = "events",
+    srcs = ["events.js"],
+    suppress = [
+        "JSC_IMPLICITLY_NULLABLE_JSDOC",
+        "JSC_STRICT_INEXISTENT_PROPERTY",
+        "JSC_UNKNOWN_EXPR_TYPE",
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+    deps = [
+        ":bot",
+        ":dom",
+        ":errors",
+        ":json",
+        ":useragent",
+        "//third_party/closure/goog/array",
+        "//third_party/closure/goog/dom",
+        "//third_party/closure/goog/events:browserevent",
+        "//third_party/closure/goog/style",
+        "//third_party/closure/goog/useragent",
+        "//third_party/closure/goog/useragent:product",
+        "//third_party/closure/goog/utils",
+    ],
+)
+
+closure_js_library(
+    name = "frame",
+    srcs = ["frame.js"],
+    suppress = [
+        "JSC_IMPLICITLY_NULLABLE_JSDOC",
+        "JSC_UNKNOWN_EXPR_TYPE",
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+    visibility = [
+        "//javascript/webdriver/atoms/inject:__pkg__",
+    ],
+    deps = [
+        ":bot",
+        ":dom",
+        ":errors",
+        ":locators",
+        "//third_party/closure/goog/dom",
+        "//third_party/closure/goog/dom:tagname",
+    ],
+)
+
+closure_js_library(
+    name = "html5",
+    srcs = glob(["html5/*.js"]),
+    suppress = [
+        "JSC_IMPLICITLY_NULLABLE_JSDOC",
+        "JSC_UNKNOWN_EXPR_TYPE",
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+    deps = [
+        ":bot",
+        ":errors",
+        ":json",
+        ":useragent",
+        "//third_party/closure/goog/useragent",
+        "//third_party/closure/goog/useragent:product",
+    ],
+)
+
+closure_js_library(
+    name = "inject",
+    srcs = ["inject.js"],
+    suppress = [
+        "JSC_IMPLICITLY_NULLABLE_JSDOC",
+        "JSC_STRICT_INEXISTENT_PROPERTY",
+        "JSC_UNKNOWN_EXPR_TYPE",
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+    visibility = [
+        "//javascript/atoms/fragments:__pkg__",
+        "//javascript/selenium-atoms:__pkg__",
+        "//javascript/webdriver/atoms/inject:__pkg__",
+    ],
+    deps = [
+        ":bot",
+        ":errors",
+        ":json",
+        "//third_party/closure/goog/array",
+        "//third_party/closure/goog/dom:nodetype",
+        "//third_party/closure/goog/object",
+        "//third_party/closure/goog/useragent",
+        "//third_party/closure/goog/utils",
+    ],
+)
+
+closure_js_library(
+    name = "json",
+    srcs = ["json.js"],
+    suppress = [
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+    deps = [
+        ":useragent",
+        "//third_party/closure/goog/json",
+        "//third_party/closure/goog/useragent",
+    ],
+)
+
+closure_js_library(
+    name = "locators",
+    srcs = glob(
+        ["locators/*.js"],
+        exclude = ["locators/css.js"],
+    ),
+    suppress = [
+        "JSC_IMPLICITLY_NULLABLE_JSDOC",
+        "JSC_LATE_PROVIDE_ERROR",
+        "JSC_UNKNOWN_EXPR_TYPE",
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+    deps = [
+        ":bot",
+        ":css",
+        ":dom",
+        ":errors",
+        ":json",
+        ":useragent",
+        "//third_party/closure/goog/array",
+        "//third_party/closure/goog/dom",
+        "//third_party/closure/goog/dom:nodetype",
+        "//third_party/closure/goog/dom:tagname",
+        "//third_party/closure/goog/math:rect",
+        "//third_party/closure/goog/string",
+        "//third_party/closure/goog/useragent",
+        "//third_party/closure/goog/useragent:product",
+        "//third_party/closure/goog/utils",
+    ],
+)
+
+closure_js_library(
+    name = "useragent",
+    srcs = ["userAgent.js"],
+    suppress = [
+        "JSC_STRICT_INEXISTENT_PROPERTY",
+        "JSC_UNKNOWN_EXPR_TYPE",
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+    deps = [
+        "//third_party/closure/goog/string",
+        "//third_party/closure/goog/useragent",
+        "//third_party/closure/goog/useragent:product",
+        "//third_party/closure/goog/useragent:product_isversion",
+    ],
+)
+
+closure_js_library(
+    name = "window",
+    srcs = [
+        "frame.js",
+        "window.js",
+    ],
+    suppress = [
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+    deps = [
+        ":bot",
+        ":errors",
+        ":events",
+        ":json",
+        ":locators",
+    ],
+)
+
+closure_js_library(
+    name = "css",
+    srcs = ["locators/css.js"],
+    suppress = [
+        "JSC_IMPLICITLY_NULLABLE_JSDOC",
+        "JSC_STRICT_INEXISTENT_PROPERTY",
+        "JSC_UNKNOWN_EXPR_TYPE",
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+    deps = [
+        ":bot",
+        ":errors",
+        ":useragent",
+        "//third_party/closure/goog/dom:nodetype",
+        "//third_party/closure/goog/string",
+        "//third_party/closure/goog/useragent",
+        "//third_party/closure/goog/utils",
+    ],
+)
+
+closure_js_library(
+    name = "test_util",
+    testonly = 1,
+    srcs = ["test/test_util.js"],
+    suppress = [
+        "JSC_USE_OF_GOOG_PROVIDE",
+    ],
+    deps = [
+        ":useragent",
+    ],
+)
+
+closure_js_deps(
+    name = "deps",
+    testonly = True,
+    visibility = [
+        "//:__pkg__",
+        "//java/test/org/openqa/selenium/environment:__pkg__",
+        "//javascript:__pkg__",
+        "//javascript/webdriver:__pkg__",
+    ],
+    deps = [
+        ":action",
+        ":bot",
+        ":color",
+        ":css",
+        ":devices",
+        ":dom",
+        ":domcore",
+        ":errors",
+        ":events",
+        ":html5",
+        ":inject",
+        ":json",
+        ":locators",
+        ":test_util",
+        ":useragent",
+        ":window",
+        "//third_party/closure/goog:library",
+        "//third_party/closure/goog:testing",
+    ],
+)
+
+closure_test_suite(
+    name = "closure-test",
+    data = [
+        ":atoms",
+        ":deps",
+    ],
+)

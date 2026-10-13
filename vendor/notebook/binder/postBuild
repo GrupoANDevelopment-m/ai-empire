@@ -1,0 +1,6 @@
+#!/bin/bash
+set -euo pipefail
+
+python -m pip install -e ".[dev,test]"
+jupyter-builder develop . --overwrite
+node ./buildutils/lib/develop.js --overwrite

@@ -1,0 +1,65 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+#![warn(clippy::all)]
+#![allow(clippy::match_like_matches_macro)]
+#![allow(clippy::needless_lifetimes)]
+#![allow(clippy::should_implement_trait)]
+#![allow(clippy::single_match)]
+#![allow(clippy::type_complexity)]
+#![allow(clippy::new_without_default)]
+#![deny(clippy::cloned_instead_of_copied)]
+#![deny(clippy::derive_partial_eq_without_eq)]
+#![deny(clippy::inefficient_to_string)]
+#![deny(clippy::mem_replace_option_with_some)]
+#![deny(clippy::str_to_string)]
+#![deny(clippy::trivially_copy_pass_by_ref)]
+
+pub mod alias;
+pub mod annotation;
+pub mod boundary;
+pub mod callable;
+pub mod class;
+pub mod data_frame;
+pub mod dimension;
+pub mod display;
+mod einops;
+mod einsum;
+pub mod equality;
+pub mod facet;
+pub mod function;
+pub mod globals;
+mod gufunc;
+pub mod heap;
+pub mod identity;
+pub mod keywords;
+pub mod lit_int;
+pub mod literal;
+pub mod map_int_tuples;
+pub mod meta_shape_dsl;
+pub mod module;
+pub mod named_ints;
+pub mod param_spec;
+pub mod polars_dtype;
+pub mod quantified;
+pub mod read_only;
+pub mod sentinel;
+pub mod series;
+pub mod shape_index;
+pub mod shaped_array;
+pub mod simplify;
+pub mod special_form;
+pub mod stdlib;
+pub mod tuple;
+pub mod type_alias;
+pub mod type_info;
+pub mod type_level_dsl;
+pub mod type_output;
+pub mod type_var;
+pub mod type_var_tuple;
+pub mod typed_dict;
+pub mod types;

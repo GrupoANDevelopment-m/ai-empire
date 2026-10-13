@@ -1,0 +1,16 @@
+name: 'Close stale issues'
+on:
+  schedule:
+    - cron: '50 5 * * *'
+
+permissions:
+  issues: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v11.0.0
+        with:
+          days-before-stale: 30
+          any-of-labels: needs-info

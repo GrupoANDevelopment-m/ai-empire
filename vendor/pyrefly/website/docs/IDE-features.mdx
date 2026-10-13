@@ -1,0 +1,568 @@
+---
+title: IDE Supported Features
+toc_max_heading_level: 4
+
+description: Supported features for Pyrefly's IDE extension
+---
+
+{/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */}
+
+# IDE Supported Features
+
+Pyrefly’s language server powers a complete editing experience while **fully disabling Pylance**, ensuring no interference between checkers.
+
+> Each feature below links to the [official LSP specification](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/) and shows what’s currently supported by Pyrefly.
+
+---
+
+### [Go to definition](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_definition)
+
+Jump to where a symbol was originally defined with a click or <kbd>F12</kbd>. If there is both a `.pyi` and `.py` file, we will jump to the `.py`.
+<video
+  src="/videos/go-to-definition.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+---
+
+### [Go to type definition](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_typeDefinition)
+
+Navigate to the underlying type of any expression. If the expression is a type, we will navigate to the `.pyi` file if both a `.py` and `.pyi` exist.
+<video
+  src="/videos/go-to-type-definition.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+---
+
+### [Go to declaration](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_declaration)
+
+Navigate to where the type was defined, but stop at imports.
+<video
+  src="/videos/go-to-declaration.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+---
+
+### [Go to implementation](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_implementation)
+
+On a method, navigate to all reimplementations.
+<video
+  src="/videos/go-to-implementation.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+---
+
+### [Move/rename file](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_didRename)
+
+When moving or renaming a file, Pyrefly will do it's best to rename all references to it.
+<video
+  src="/videos/move-file.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+---
+
+### [Find references](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_references)
+
+List all usages of a symbol across your codebase.
+<video
+  src="/videos/find-all-references.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+---
+
+### [Document symbols](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_documentSymbol)
+
+See an outline of all top-level items in the current file.
+<video
+  src="/videos/document-symbols.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+---
+
+### [Workspace symbols](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_symbol)
+
+Search globally for functions, classes, and variables.
+<video
+  src="/videos/workspace-symbols.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+---
+
+### [Hover](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_hover)
+
+See type info and docstrings when hovering over code.
+<video
+  src="/videos/hover.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+---
+
+### [Document highlights](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_documentHighlight)
+
+Highlights all other instances of the symbol under your cursor.
+<video
+  src="/videos/document-highlights.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+---
+
+### [Signature help](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_signatureHelp)
+
+Live function signatures as you type, with parameter hints.
+<video
+  src="/videos/signature-help.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+---
+
+### [Completion](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_completion)
+
+Autocomplete suggestions for project-specific symbols and imports.
+<video
+  src="/videos/autocomplete.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+---
+
+### [Rename](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_rename)
+
+Safely rename symbols project-wide.
+<video
+  src="/videos/rename.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+---
+
+<!-- ### [Call hierarchy](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#callHierarchy_prepare)
+
+Explore callers and callees of a method or function.
+![Call hierarchy](../gifs/call-hierarchy.gif)
+
+---
+ -->
+
+### [Code actions](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_codeAction)
+
+Code actions are automated fixes and refactorings that Pyrefly offers through your editor. They appear as lightbulb suggestions or can be triggered on save.
+
+#### Quick Fix
+
+When Pyrefly detects a type error, it may offer a quick fix — a one-click resolution available via the lightbulb menu (<kbd>Cmd+.</kbd> / <kbd>Ctrl+.</kbd>). Currently supported:
+
+**Add missing import**
+
+Automatically add an import statement for an unresolved name.
+
+<video
+  src="/videos/code-action-add-import.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+**Remove redundant cast**
+
+Remove a `typing.cast()` call where the argument already has the target type.
+
+<video
+  src="/videos/code-action-remove-cast.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+#### Fix All
+
+Pyrefly registers the `source.fixAll.pyrefly` [code action kind](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#codeActionKind), which applies all available auto-fixes across a file at once. This is typically triggered on save.
+
+The generic `source.fixAll` also triggers Pyrefly's fixes, so if you already use `"source.fixAll": "always"` (a common default), Pyrefly will participate alongside other tools like [Ruff](https://docs.astral.sh/ruff/editors/features/#fix-safety) or [ESLint](https://github.com/microsoft/vscode-eslint). The tool-specific `source.fixAll.pyrefly` variant lets you control Pyrefly independently.
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+<Tabs>
+  <TabItem value="vscode" label="VS Code" default>
+
+```json
+"editor.codeActionsOnSave": {
+    "source.fixAll.pyrefly": "always"
+}
+```
+
+  </TabItem>
+  <TabItem value="neovim" label="Neovim">
+
+```lua
+vim.api.nvim_create_autocmd("BufWritePre", {
+  callback = function()
+    vim.lsp.buf.code_action({
+      context = { only = { "source.fixAll.pyrefly" } },
+      apply = true,
+    })
+  end,
+})
+```
+
+  </TabItem>
+  <TabItem value="sublime" label="Sublime Text">
+
+In your LSP settings (`Preferences > Package Settings > LSP > Settings`):
+
+```json
+{
+    "lsp_code_actions_on_save": {
+        "source.fixAll.pyrefly": true
+    }
+}
+```
+
+  </TabItem>
+</Tabs>
+
+#### Refactor
+
+Pyrefly supports a range of refactoring code actions, triggered via the lightbulb menu or keyboard shortcuts.
+
+**Pull Member Up and Push Member Down**
+
+Pull a method from a subclass to a superclass, or push a method from a superclass to a subclass.
+
+**Pull Member Up**
+<video
+  src="/videos/pull-up-refactor.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+**Push Member Down**
+<video
+  src="/videos/push-down-refactor.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+**Convert to Package and Convert to Module**
+
+Convert to Package takes .py file and moves it to a package directory with all logic moved into an __init__.py file.
+
+<video
+  src="/videos/convert-to-package.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+Convert to Module takes an existing package with all logic defined in its __init__.py and creates a named .py file from it.
+
+<video
+  src="/videos/convert-to-module.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+**Move function to top level**
+
+Takes a function nested within another function or statement and moves it to the top level of the module.
+
+<video
+  src="/videos/top-level-refactor.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+**Introduce Parameter**
+
+Adds a new parameter to a function definition and update all call sites to pass the new parameter.
+
+<video
+  src="/videos/refactor-introduce-parameter.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+**Inline Variable**
+
+Removes redundant variables by replacing them with their value.
+
+<video
+  src="/videos/refactor-inline-variable.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+**Extract to Field**
+
+Declare a new field on a class with the value of the selected expression.
+
+<video
+  src="/videos/refactor-extract-to-field.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+**Extract to Variable**
+
+Declare a new variable with the value of the selected expression.
+
+<video
+  src="/videos/refactor-extract-to-variable.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+**Invert Boolean**
+
+Flips the value of a boolean and updates all usages to work with new value.
+
+<video
+  src="/videos/refactor-invert-boolean.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+---
+
+### [Diagnostics](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_publishDiagnostics)
+
+Type errors and warnings from Pyrefly’s checker appear in the diagnostics pane ("Problems" pane in VSCode).
+<video
+  src="/videos/diagnostics.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+Pyrefly also greys out unused imports and unused local variables directly in the editor. These are IDE-only hints and do not appear in the CLI.
+
+Because Pyrefly does not model import side effects, an import used only for its side effects  (for example a plugin that registers accessors or methods on an existing class, such as `pyjanitor` extending `pandas.DataFrame`) may be greyed even though it is required at runtime.
+
+---
+
+### [Semantic tokens](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_semanticTokens)
+
+Rich syntax highlighting based on token type and origin.
+<video
+  src="/videos/semantic-highlighting.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+---
+
+### [Inlay hints](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_inlayHint)
+
+Inline hints for types, parameter names, and return values.
+
+You can turn inlay hints on or off using the [VS Code setting](https://code.visualstudio.com/docs/editing/editingevolved#_inlay-hints) `editor.inlayHints.enabled`.
+
+We reuse Pyright's `python.analysis.inlayHints.*` settings for backwards compatibility. If you have or had Pyright installed, check these settings if inlay hints do not appear as expected.
+
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `python.analysis.inlayHints.callArgumentNames` | `"all"` \| `"off"` \| `"partial"` | `"off"` | Show parameter names at call sites. `"partial"` only shows names for arguments where the name is not obvious from the value. |
+| `python.analysis.inlayHints.functionReturnTypes` | `boolean` | `true` | Show return type hints on functions without a return type annotation. |
+| `python.analysis.inlayHints.variableTypes` | `boolean` | `true` | Show type hints on variable assignments without a type annotation. |
+| `python.analysis.inlayHints.pytestParameters` | `boolean` | `false` | Show type hints for pytest fixture parameters. |
+| `python.analysis.inlayHintDebounceMs` | `number` | `150` | Debounce window, in milliseconds, for inlay hints. While a file is being edited, updates are held until editing pauses for this long, so hint widths don't jitter on every keystroke. Set to `0` to update immediately. |
+
+Inlay hints can be double clicked to insert them as an annotation.
+<video
+  src="/videos/double-click-inlay-hint.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+Go-to-definition can be used on a type in an inlay hint to jump its definition. This works even if the type isn't explicitly imported by the current file.
+<video
+  src="/videos/cmd-click-inlay-hint.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+
+---
+
+### [Notebook support](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#notebookDocument)
+
+Pyrefly provides language services for Jupyter notebooks directly in VS Code and also in Jupyter Lab. In Jupyter Lab, once you install the
+[jupyterlab-lsp](https://jupyterlab-lsp.readthedocs.io/en/latest/Installation.html) extension, and Pyrefly will appear on the list of
+automatically-detected language servers.
+
+Pyrefly also provides language services to [Marimo notebooks](https://marimo.io/). See
+[Language Server Protocol](https://docs.marimo.io/guides/editor_features/language_server/#pyrefly) for how to enable it.
+
+Notebook support is experimental. Please report any bugs on our Github.
+
+---
+### [Call Hierarchy](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_prepareCallHierarchy)
+
+See all incoming functions calls to a particular function, as well as all outgoing function calls from a function. Call Hierarchy provides a full picture of
+how a particular function is used within a call stack.
+
+<video
+  src="/videos/call-hierarchy.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+---
+### [Type Hierarchy](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_prepareTypeHierarchy)
+
+See all subclasses and superclasses of a selected class.
+
+<video
+  src="/videos/type-hierarchy.mp4"
+  width="720"
+  muted
+  loop
+  autoPlay
+  playsInline
+  preload="metadata"
+/>
+---
+
+## Planned features
+
+See [planned features and request your own](https://github.com/facebook/pyrefly/issues/2207) on GitHub.

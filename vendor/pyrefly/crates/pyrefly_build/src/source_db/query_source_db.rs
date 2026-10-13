@@ -1,0 +1,2018 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+use std::collections::VecDeque;
+use std::mem;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+use std::time::Instant;
+
+use dupe::Dupe as _;
+use pyrefly_python::PYTHON_EXTENSIONS;
+use pyrefly_python::module_name::ModuleName;
+use pyrefly_python::module_path::ModulePath;
+use pyrefly_python::module_path::ModuleStyle;
+use pyrefly_util::interned_path::InternedPath;
+use pyrefly_util::lock::Mutex;
+use pyrefly_util::lock::RwLock;
+use pyrefly_util::telemetry::TelemetrySourceDbRebuildInstanceStats;
+use pyrefly_util::watch_pattern::WatchPattern;
+use starlark_map::small_map::SmallMap;
+use starlark_map::small_set::SmallSet;
+use tracing::debug;
+use tracing::info;
+use vec1::Vec1;
+
+use crate::handle::Handle;
+use crate::query::Include;
+use crate::query::PythonLibraryManifest;
+use crate::query::QueryResult;
+use crate::query::SourceDbQuerier;
+use crate::query::TargetManifestDatabase;
+use crate::query::path_is_from_stubs_package;
+use crate::source_db::ConfigName;
+use crate::source_db::LiveSourceDatabase;
+use crate::source_db::ModulePathCache;
+use crate::source_db::SourceDatabase;
+use crate::source_db::Target;
+
+/// The result from a `[ModuleName`] lookup on a source db.
+#[derive(Debug)]
+enum ManifestLookupResult {
+    /// We found a result matching the module name we want to find with
+    /// the preferred [`ModuleStyle`].
+    ExactMatch(ModulePath),
+    /// We found a result matching the module name we want to find, but
+    /// the [`ModuleStyle`] differs.
+    StyleMismatch(ModulePath),
+}
+
+impl ManifestLookupResult {
+    fn path(self) -> ModulePath {
+        match self {
+            Self::ExactMatch(path) | Self::StyleMismatch(path) => path,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+enum WatchPatternPart {
+    Extension(String),
+    FullFileName(String),
+}
+
+impl WatchPatternPart {
+    fn get_pattern(&self) -> String {
+        match self {
+            Self::Extension(ext) => format!("**/*.{}", ext),
+            Self::FullFileName(file) => format!("**/{}", file),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct Inner {
+    /// The mapping from targets to their manifests, including sources, dependencies,
+    /// and metadata. This is the source of truth.
+    db: SmallMap<Target, PythonLibraryManifest>,
+    /// An index for doing fast lookups of a path to its owning target.
+    /// Invariants:
+    /// - if a path exists in `path_lookup`, its target must exist in `db`.
+    /// - if a path exists in `path_lookup`, its target's `srcs` must have a
+    ///   module name with `path` as a module path.
+    path_lookup: SmallMap<InternedPath, Target>,
+    /// An index for doing fast lookups of a package to possible owning targets.
+    /// We keep this, since it's possible an init file is defined in one target, but not
+    /// a dependency or dependent target in the same directory. We also need to
+    /// perform a search through all synthesized packages, since the import we're looking
+    /// for could be in any relevant target there as well. This will happen in directories
+    /// defining multiple Python targets, but that don't have any init files.
+    ///
+    /// The key in this map will always point to an `__init__` file if *any*
+    /// target pointing to the "regular package" contains a real `__init__` file on
+    /// disk. Otherwise, the key will point to a synthesized package's directory.
+    package_lookup: SmallMap<InternedPath, SmallSet<Target>>,
+    /// Is this module known by the build system?
+    known_modules: SmallSet<ModuleName>,
+    /// Which file suffixes have we seen and should we watch?
+    watched_patterns: SmallSet<WatchPatternPart>,
+    /// Non-Python file suffixes referenced in the sourcedb.
+    extra_filetypes: SmallSet<String>,
+    /// Raw JSON config overrides, keyed by the name targets refer to them by.
+    configs: SmallMap<ConfigName, serde_json::Value>,
+    /// Which entry of `configs` backs settings no target config supplies.
+    default_config: Option<ConfigName>,
+}
+
+impl Inner {
+    fn new() -> Self {
+        Inner {
+            db: SmallMap::new(),
+            path_lookup: SmallMap::new(),
+            package_lookup: SmallMap::new(),
+            known_modules: SmallSet::new(),
+            watched_patterns: SmallSet::new(),
+            extra_filetypes: SmallSet::new(),
+            configs: SmallMap::new(),
+            default_config: None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct QuerySourceDatabase {
+    inner: RwLock<Inner>,
+    /// The set of items the sourcedb has been queried for. Not all of the targets
+    /// or files listed here will necessarily appear in the sourcedb, for example,
+    /// if the given target does not exist, or if the file is not tracked by Buck.
+    includes: Mutex<SmallSet<Include>>,
+    /// The directory that will be passed into the sourcedb query shell-out. Should
+    /// be the same as the directory containing the config this sourcedb is a part of.
+    repo_root: InternedPath,
+    querier: Arc<dyn SourceDbQuerier>,
+    cached_modules: ModulePathCache,
+    /// Targets that will be added to the query as a fallback.
+    catch_all_targets: Vec<Target>,
+    catch_all_targets_only: bool,
+}
+
+impl QuerySourceDatabase {
+    pub fn new(
+        cwd: PathBuf,
+        querier: Arc<dyn SourceDbQuerier>,
+        catch_all_targets: Vec<Target>,
+        catch_all_targets_only: bool,
+    ) -> Self {
+        QuerySourceDatabase {
+            repo_root: InternedPath::new(cwd),
+            inner: RwLock::new(Inner::new()),
+            includes: Mutex::new(SmallSet::new()),
+            querier,
+            cached_modules: ModulePathCache::new(),
+            catch_all_targets,
+            catch_all_targets_only,
+        }
+    }
+
+    fn update_with_target_manifest(
+        &self,
+        mut raw_db: TargetManifestDatabase,
+    ) -> anyhow::Result<(bool, Duration)> {
+        let start = Instant::now();
+        let configs = mem::take(&mut raw_db.configs);
+        let default_config = raw_db.default_config.take();
+        let (new_db, extra_filetypes) = raw_db.produce_map();
+        let read = self.inner.read();
+        if new_db == read.db
+            && extra_filetypes == read.extra_filetypes
+            && configs == read.configs
+            && default_config == read.default_config
+        {
+            debug!("No source DB changes from Buck query");
+            return Ok((false, start.elapsed()));
+        }
+        drop(read);
+        // A config name that `configs` does not define resolves to no settings at
+        // lookup time, which is indistinguishable from a config that sets nothing.
+        // Report it here, where the whole response is in hand.
+        let unknown_configs = new_db
+            .values()
+            .filter_map(|manifest| manifest.config.as_ref())
+            .chain(default_config.as_ref())
+            .filter(|name| !configs.contains_key(*name))
+            .collect::<SmallSet<_>>();
+        if !unknown_configs.is_empty() {
+            return Err(anyhow::anyhow!(
+                "Build system response refers to the following configs, which it does not define: `{unknown_configs:?}`"
+            ));
+        }
+        drop(unknown_configs);
+        let mut path_lookup: SmallMap<InternedPath, Target> = SmallMap::new();
+        let mut package_lookup: SmallMap<InternedPath, SmallSet<Target>> = SmallMap::new();
+        let mut known_modules: SmallSet<ModuleName> = SmallSet::new();
+        let mut watched_patterns: SmallSet<WatchPatternPart> = SmallSet::new();
+        let mut known_extensions: SmallSet<String> =
+            PYTHON_EXTENSIONS.iter().map(|x| (*x).to_owned()).collect();
+        let mut known_files: SmallSet<String> = SmallSet::new();
+        let mut append_pattern = |path: &Path| {
+            if let Some(extension) = path.extension().map(|e| e.to_string_lossy()) {
+                if !known_extensions.contains(&*extension) {
+                    known_extensions.insert(extension.into_owned());
+                }
+            } else if let Some(file) = path.file_name().map(|f| f.to_string_lossy())
+                && !known_files.contains(&*file)
+            {
+                known_files.insert(file.into_owned());
+            }
+        };
+        for (target, manifest) in new_db.iter() {
+            known_modules.extend(
+                manifest
+                    .srcs
+                    .keys()
+                    .copied()
+                    .chain(manifest.packages.keys().copied()),
+            );
+            for source in manifest.srcs.values().flatten() {
+                if let Some(old_target) = path_lookup.get_mut(source) {
+                    let new_target = (&*old_target).min(target);
+                    *old_target = new_target.dupe();
+                } else {
+                    path_lookup.insert(source.dupe(), target.dupe());
+                }
+                append_pattern(source);
+            }
+            for paths in manifest.packages.values() {
+                for path in paths {
+                    package_lookup
+                        .entry(path.dupe())
+                        .or_default()
+                        .insert(target.dupe());
+                }
+            }
+            append_pattern(&manifest.buildfile_path)
+        }
+        // Add extra file types discovered by the BXL script to file watching patterns.
+        for suffix in &extra_filetypes {
+            known_extensions.insert(suffix.clone());
+        }
+        watched_patterns.extend(
+            known_extensions
+                .into_iter()
+                .map(WatchPatternPart::Extension)
+                .chain(known_files.into_iter().map(WatchPatternPart::FullFileName)),
+        );
+        let mut write = self.inner.write();
+        // force dropping write before exiting and dropping other large data structures
+        // by binding the replaced data and explicitly dropping `write`
+        let _old_db = mem::replace(&mut write.db, new_db);
+        let _old_path_lookup = mem::replace(&mut write.path_lookup, path_lookup);
+        let _old_package_lookup = mem::replace(&mut write.package_lookup, package_lookup);
+        let _old_known_modules = mem::replace(&mut write.known_modules, known_modules);
+        let _old_patterns = mem::replace(&mut write.watched_patterns, watched_patterns);
+        let _old_extra_filetypes = mem::replace(&mut write.extra_filetypes, extra_filetypes);
+        let _old_configs = mem::replace(&mut write.configs, configs);
+        let _old_default_config = mem::replace(&mut write.default_config, default_config);
+        drop(write);
+        debug!("Finished updating source DB with Buck response");
+        Ok((true, start.elapsed()))
+    }
+
+    /// Attempts to search in the given [`PythonLibraryManifest`] for the import,
+    /// checking `srcs` and `package_lookup`.
+    /// If a synthesized dunder init is found, the init is added to `namespace_candidates`,
+    /// and `None` is returned.
+    fn find_in_manifest<'a>(
+        &'a self,
+        module: ModuleName,
+        manifest: &'a PythonLibraryManifest,
+        style_filter: Option<ModuleStyle>,
+        namespace_candidates: &mut SmallSet<ModulePath>,
+    ) -> Option<ManifestLookupResult> {
+        let get_lookup_result = |paths: &Vec1<InternedPath>| {
+            let style = style_filter.unwrap_or(ModuleStyle::Interface);
+            if let Some(result) = paths.iter().find(|p| ModuleStyle::of_path(p) == style) {
+                return ManifestLookupResult::ExactMatch(self.cached_modules.get(result));
+            }
+            ManifestLookupResult::StyleMismatch(self.cached_modules.get(paths.first()))
+        };
+        if let Some(paths) = manifest.srcs.get(&module) {
+            return Some(get_lookup_result(paths));
+        }
+
+        // Take the first dunder init package we see, since it will have an `__init__.py` file
+        // output on disk during actual build system building.
+        if let Some(packages) = manifest.packages.get(&module) {
+            // we don't care about the filter as much here, this is more of a preference.
+            namespace_candidates.insert(get_lookup_result(packages).path());
+        }
+        None
+    }
+
+    /// Perform a lookup, starting from the given target, and searching through all of
+    /// its dependencies. The first found result (file, regular package,
+    /// or implicit package) is returned.
+    fn lookup_from_target<'a>(
+        &'a self,
+        read: &'a Inner,
+        module: ModuleName,
+        target: Target,
+        style_filter: Option<ModuleStyle>,
+    ) -> Option<ModulePath> {
+        let mut queue = VecDeque::new();
+        let mut visited = SmallSet::new();
+        let mut namespace_candidates: SmallSet<ModulePath> = SmallSet::new();
+        let mut exact_candidate = None;
+        let mut filter_candidate: Option<(bool, ModulePath)> = None;
+        queue.push_front(target);
+
+        while let Some(current_target) = queue.pop_front() {
+            if !visited.insert(current_target) {
+                continue;
+            }
+            let Some(manifest) = read.db.get(&current_target) else {
+                continue;
+            };
+
+            match self.find_in_manifest(module, manifest, style_filter, &mut namespace_candidates) {
+                Some(ManifestLookupResult::ExactMatch(result))
+                    if path_is_from_stubs_package(result.as_path()) =>
+                {
+                    return Some(result);
+                }
+                Some(ManifestLookupResult::ExactMatch(result)) if exact_candidate.is_none() => {
+                    exact_candidate = Some(result);
+                }
+                Some(ManifestLookupResult::StyleMismatch(result)) => {
+                    let from_stubs = path_is_from_stubs_package(result.as_path());
+                    if filter_candidate
+                        .as_ref()
+                        .is_none_or(|(candidate_from_stubs, _)| from_stubs && !candidate_from_stubs)
+                    {
+                        filter_candidate = Some((from_stubs, result));
+                    }
+                }
+                _ => (),
+            }
+
+            manifest.deps.iter().for_each(|t| queue.push_back(t.dupe()));
+        }
+
+        if let Some(exact_candidate) = exact_candidate {
+            return Some(exact_candidate);
+        }
+
+        if let Some((_, filtered_candidate)) = filter_candidate {
+            return Some(filtered_candidate);
+        }
+
+        namespace_candidates.into_iter().min()
+    }
+}
+
+impl SourceDatabase for QuerySourceDatabase {
+    fn may_contain_module(&self, module: ModuleName) -> bool {
+        self.inner.read().known_modules.contains(&module)
+    }
+
+    fn lookup(
+        &self,
+        module: ModuleName,
+        origin: Option<&Path>,
+        style_filter: Option<ModuleStyle>,
+    ) -> Option<ModulePath> {
+        let origin = InternedPath::from_path(origin?);
+        let read = self.inner.read();
+        if !read.known_modules.contains(&module) {
+            return None;
+        }
+        if let Some(start_target) = read.path_lookup.get(&origin)
+            && let Some(result) =
+                self.lookup_from_target(&read, module, *start_target, style_filter)
+        {
+            return Some(result);
+        } else if let Some(package_targets) = read.package_lookup.get(&origin) {
+            let mut package_matches = SmallSet::new();
+            // Gather all of the implicit package targets and deterministically return
+            // one of them. There will either be:
+            // 1. no results, in which case we return `None`
+            // 2. a result that's a src file included in a package's manifest, in which
+            //    case we can return immediately. The build system will complain if
+            //    multiple reachable targets have files that write to the same output
+            //    location, so we don't need to check for/handle that.
+            // 3. a result that's a package file, which might refer to multiple directories.
+            //    In this case, we collect all possible results, and deterministically
+            //    return one of them.
+            for target in package_targets {
+                let Some(manifest) = read.db.get(target) else {
+                    continue;
+                };
+                // We only do a search with depth 1, since an import originating from an
+                // implicit package will be defined in that package's target.
+                // If we've reached this (top level) 'else if' block and found a match in
+                // `init_lookup`, then our origin must be some kind of package.
+                // There are two cases here:
+                // 1. The package is pointing to an `__init__.py` file, in which case,
+                //    we would have checked the target and its dependencies in the
+                //    previous (top level) `if` block. That would find anything from
+                //    another target the actual `__init__.py` file is attempting to
+                //    import, in which case the user is required to specify the dependency
+                //    on the target owning the init file by virtue of using a build system.
+                // 2. The package is pointing to an `__init__.py` file or synthesized package
+                //    directory. In this case, the dependencies don't really matter, because
+                //    what we're looking for is a relative import within *this* target
+                //    or another target that has a package at the origin's location.
+                match self.find_in_manifest(module, manifest, style_filter, &mut package_matches) {
+                    Some(result) => return Some(result.path()),
+                    _ => (),
+                }
+            }
+            // just take the first namespace package we found
+            return package_matches.into_iter().next();
+        }
+
+        if let Some(result) = self
+            .catch_all_targets
+            .iter()
+            .find_map(|t| self.lookup_from_target(&read, module, *t, style_filter))
+        {
+            return Some(result);
+        }
+
+        None
+    }
+
+    fn handle_from_module_path(&self, module_path: &ModulePath) -> Option<Handle> {
+        let read = self.inner.read();
+        let target = read.path_lookup.get(&module_path.module_path_buf())?;
+
+        // if we get a target from `path_lookup`, it must exist in manifest
+        let manifest = read.db.get(target).unwrap();
+        let module_name = manifest
+            .srcs
+            .iter()
+            .find(|(_, paths)| paths.iter().any(|p| *p == module_path.module_path_buf()))
+            // similarly, if we get a target for a path in `path_lookup`, it must exist
+            // in that target's srcs
+            .unwrap()
+            .0;
+        Some(Handle::new(
+            module_name.dupe(),
+            module_path.dupe(),
+            manifest.sys_info.dupe(),
+        ))
+    }
+
+    fn as_live_source_database(&self) -> Option<&dyn LiveSourceDatabase> {
+        Some(self)
+    }
+}
+
+impl LiveSourceDatabase for QuerySourceDatabase {
+    fn query_source_db(
+        &self,
+        mut files: SmallSet<InternedPath>,
+        force: bool,
+    ) -> (anyhow::Result<bool>, TelemetrySourceDbRebuildInstanceStats) {
+        // reassign files here, so that we record that 0 files were explicitly included in the
+        // sourcedb rebuild
+        if self.catch_all_targets_only {
+            files = SmallSet::new();
+        }
+        let mut stats = TelemetrySourceDbRebuildInstanceStats::default();
+        stats.common.forced = force;
+        stats.common.files = files.len();
+        let run = || {
+            let new_includes = files
+                .into_iter()
+                .map(Include::path)
+                .chain(self.catch_all_targets.iter().copied().map(Include::Target))
+                .collect();
+            let mut includes = self.includes.lock();
+            if *includes == new_includes && !force {
+                debug!("Not querying Buck source DB, since no inputs have changed");
+                return Ok(false);
+            }
+            info!("Querying Buck for source DB");
+            let QueryResult {
+                db: raw_db,
+                build_id,
+                build_duration,
+                parse_duration,
+                stdout_size,
+                exit_reason,
+            } = self.querier.query_source_db(&new_includes, &self.repo_root);
+            stats.build_id = build_id;
+            stats.build_time = build_duration;
+            stats.parse_time = parse_duration;
+            stats.raw_size = stdout_size;
+            stats.exit_reason = exit_reason.as_ref().map(|r| r.to_string());
+            let raw_db = raw_db?;
+            info!("Finished querying Buck for source DB");
+            let (changed, process_duration) = self.update_with_target_manifest(raw_db)?;
+            // Commit only after the response has been ingested, so a failure in either
+            // step doesn't make the next rebuild believe its inputs are unchanged and
+            // skip the retry.
+            *includes = new_includes;
+            stats.common.changed = changed;
+            stats.process_time = Some(process_duration);
+            Ok(changed)
+        };
+        (run(), stats)
+    }
+
+    fn get_paths_to_watch<'a>(&'a self) -> SmallSet<WatchPattern> {
+        let read = self.inner.read();
+        let mut patterns: SmallSet<WatchPattern> = SmallSet::new();
+        for pattern in &read.watched_patterns {
+            patterns.insert(WatchPattern::root(
+                self.repo_root.dupe(),
+                pattern.get_pattern(),
+            ));
+        }
+        patterns
+    }
+
+    fn get_target(&self, origin: Option<&Path>) -> Option<Target> {
+        let origin = InternedPath::from_path(origin?);
+        let read = self.inner.read();
+        read.path_lookup.get(&origin).copied()
+    }
+
+    fn get_generated_files(&self) -> SmallSet<InternedPath> {
+        let read = self.inner.read();
+        read.db
+            .values()
+            .filter_map(|x| -> Option<Box<dyn Iterator<Item = InternedPath>>> {
+                if x.relative_to.is_some() {
+                    Some(Box::new(x.srcs.values().flatten().copied()))
+                } else if let Some(build_root) = x.buildfile_path.parent() {
+                    Some(Box::new(
+                        x.srcs
+                            .values()
+                            .flatten()
+                            .filter(move |p| !p.starts_with(build_root))
+                            .copied(),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .collect()
+    }
+
+    fn get_target_root(&self, origin: Option<&Path>) -> Option<PathBuf> {
+        let target = self.get_target(origin)?;
+        let read = self.inner.read();
+        read.db.get(&target)?.root.clone()
+    }
+
+    fn get_target_config_name(&self, origin: Option<&Path>) -> Option<ConfigName> {
+        let target = self.get_target(origin)?;
+        let read = self.inner.read();
+        read.db.get(&target)?.config.dupe()
+    }
+
+    fn get_default_config_name(&self) -> Option<ConfigName> {
+        self.inner.read().default_config.dupe()
+    }
+
+    fn get_config(&self, name: &ConfigName) -> Option<serde_json::Value> {
+        self.inner.read().configs.get(name).cloned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use pretty_assertions::assert_eq;
+    use pyrefly_python::sys_info::PythonPlatform;
+    use pyrefly_python::sys_info::PythonVersion;
+    use pyrefly_python::sys_info::SysInfo;
+    use starlark_map::small_set::SmallSet;
+    use starlark_map::smallmap;
+    use starlark_map::smallset;
+
+    use super::*;
+    use crate::query::TargetManifest;
+
+    #[derive(Debug)]
+    struct DummyQuerier {}
+
+    impl SourceDbQuerier for DummyQuerier {
+        fn query_source_db(&self, _: &SmallSet<Include>, _: &Path) -> QueryResult {
+            QueryResult {
+                db: Ok(TargetManifestDatabase::get_test_database()),
+                build_id: None,
+                build_duration: None,
+                parse_duration: None,
+                stdout_size: None,
+                exit_reason: None,
+            }
+        }
+
+        fn construct_command(&self, _: Option<&Path>) -> std::process::Command {
+            panic!("We shouldn't be calling this...");
+        }
+    }
+
+    impl QuerySourceDatabase {
+        fn from_target_manifest_db(
+            raw_db: TargetManifestDatabase,
+            root: &Path,
+            files: &SmallSet<PathBuf>,
+        ) -> Self {
+            let new = Self {
+                inner: RwLock::new(Inner::new()),
+                includes: Mutex::new(
+                    files
+                        .iter()
+                        .map(|p| Include::path(InternedPath::new(p.to_path_buf())))
+                        .collect(),
+                ),
+                repo_root: InternedPath::from_path(root),
+                querier: Arc::new(DummyQuerier {}),
+                cached_modules: ModulePathCache::new(),
+                catch_all_targets: vec![],
+                catch_all_targets_only: false,
+            };
+            new.update_with_target_manifest(raw_db).unwrap();
+            new
+        }
+    }
+
+    fn get_db() -> (QuerySourceDatabase, PathBuf) {
+        let raw_db = TargetManifestDatabase::get_test_database();
+        let root = raw_db.root.to_path_buf();
+        let files = smallset! {
+            root.join("pyre/client/log/log.py"),
+            root.join("pyre/client/log/log.pyi"),
+        };
+
+        (
+            QuerySourceDatabase::from_target_manifest_db(raw_db, &root, &files),
+            root,
+        )
+    }
+
+    #[test]
+    fn test_may_contain_module_uses_known_modules() {
+        let (db, _) = get_db();
+
+        assert!(db.may_contain_module(ModuleName::from_str("pyre.client.log.log")));
+        assert!(!db.may_contain_module(ModuleName::from_str("shape_extensions")));
+    }
+
+    #[test]
+    fn test_path_lookup_index_creation() {
+        let (db, root) = get_db();
+        let path_lookup = db.inner.read().path_lookup.clone();
+        let expected = smallmap! {
+            InternedPath::new(root.join("colorama/__init__.py")) =>
+                Target::from_string("//colorama:py".to_owned()),
+            InternedPath::new(root.join("colorama/__init__.pyi")) =>
+                Target::from_string("//colorama:py-stubs".to_owned()),
+            InternedPath::new(root.join("click/__init__.pyi")) =>
+                Target::from_string("//click:py".to_owned()),
+            InternedPath::new(root.join("click/__init__.py")) =>
+                Target::from_string("//click:py".to_owned()),
+            InternedPath::new(root.join("pyre/client/log/__init__.py")) =>
+                Target::from_string("//pyre/client/log:log".to_owned()),
+            InternedPath::new(root.join("pyre/client/log/log.py")) =>
+                Target::from_string("//pyre/client/log:log".to_owned()),
+            InternedPath::new(root.join("pyre/client/log/log.pyi")) =>
+                Target::from_string("//pyre/client/log:log".to_owned()),
+            InternedPath::new(root.join("pyre/client/log/format.py")) =>
+                Target::from_string("//pyre/client/log:log".to_owned()),
+            InternedPath::new(root.join("implicit_package/test/main.py")) =>
+                Target::from_string("//implicit_package/test:main".to_owned()),
+            InternedPath::new(root.join("implicit_package/test/lib/utils.py")) =>
+                Target::from_string("//implicit_package/test:lib".to_owned()),
+            InternedPath::new(root.join("implicit_package/package_boundary_violation.py")) =>
+                Target::from_string("//implicit_package/test:lib".to_owned()),
+            InternedPath::new(root.join("implicit_package/test/deeply/nested/package/file.py")) =>
+                Target::from_string("//implicit_package/test:lib".to_owned()),
+            InternedPath::new(PathBuf::from("/path/to/another/repository/package/external_package/main.py")) =>
+                Target::from_string("//external:package".to_owned()),
+            InternedPath::new(PathBuf::from("/path/to/another/repository/package/external_package/non_python_file.so")) =>
+                Target::from_string("//external:package".to_owned()),
+            InternedPath::new(root.join("generated/main.py")) => Target::from_string("//generated:main".to_owned()),
+            InternedPath::new(root.join("build-out/materialized/generated/__init__.py")) => Target::from_string("//generated:lib".to_owned()),
+        };
+
+        assert_eq!(expected, path_lookup);
+    }
+
+    #[test]
+    fn test_implicit_package_lookup_index_creation() {
+        let (db, root) = get_db();
+        let path_lookup = db.inner.read().package_lookup.clone();
+        let expected = smallmap! {
+            InternedPath::new(root.join("click/__init__.py")) => smallset! {
+                Target::from_string("//click:py".to_owned()),
+            },
+            InternedPath::new(root.join("click/__init__.pyi")) => smallset! {
+                Target::from_string("//click:py".to_owned()),
+            },
+            InternedPath::new(root.join("colorama/__init__.py")) => smallset! {
+                Target::from_string("//colorama:py".to_owned()),
+            },
+            InternedPath::new(root.join("colorama/__init__.pyi")) => smallset! {
+                Target::from_string("//colorama:py-stubs".to_owned()),
+            },
+            InternedPath::new(root.join("pyre/client/log/__init__.py")) => smallset! {
+                Target::from_string("//pyre/client/log:log".to_owned()),
+                Target::from_string("//pyre/client/log:log2".to_owned()),
+            },
+            // Synthesized parent packages from pyre.client.log.log and pyre.client.log.format
+            InternedPath::new(root.join("pyre/client")) => smallset! {
+                Target::from_string("//pyre/client/log:log".to_owned()),
+            },
+            InternedPath::new(root.join("pyre")) => smallset! {
+                Target::from_string("//pyre/client/log:log".to_owned()),
+            },
+            InternedPath::new(root.join("implicit_package/test")) => smallset! {
+                Target::from_string("//implicit_package/test:main".to_owned()),
+                Target::from_string("//implicit_package/test:lib".to_owned()),
+            },
+            InternedPath::new(root.join("implicit_package/test/lib")) => smallset! {
+                Target::from_string("//implicit_package/test:lib".to_owned()),
+            },
+            InternedPath::new(root.join("implicit_package/test/deeply/nested/package")) => smallset! {
+                Target::from_string("//implicit_package/test:lib".to_owned()),
+            },
+            InternedPath::new(root.join("implicit_package/test/deeply/nested")) => smallset! {
+                Target::from_string("//implicit_package/test:lib".to_owned()),
+            },
+            InternedPath::new(root.join("implicit_package/test/deeply")) => smallset! {
+                Target::from_string("//implicit_package/test:lib".to_owned()),
+            },
+            InternedPath::new(PathBuf::from("/path/to/another/repository/package/external_package")) => smallset! {
+                Target::from_string("//external:package".to_owned()),
+            },
+            InternedPath::new(root.join("generated")) => smallset! {
+                Target::from_string("//generated:main".to_owned()),
+            },
+            InternedPath::new(root.join("build-out/materialized/generated/__init__.py")) => smallset! {
+                Target::from_string("//generated:lib".to_owned()),
+            },
+        };
+        assert_eq!(path_lookup, expected);
+    }
+
+    #[test]
+    fn test_sourcedb_lookup() {
+        let (db, root) = get_db();
+
+        let assert_lookup = |name, path, style_filter, expected: Option<&str>| {
+            assert_eq!(
+                db.lookup(
+                    ModuleName::from_str(name),
+                    Some(&root.join(path)),
+                    style_filter
+                ),
+                expected.map(|p| ModulePath::filesystem(root.join(p))),
+                "got result for {name} {path} {style_filter:?}, expected {expected:?}"
+            );
+        };
+
+        assert_eq!(db.lookup(ModuleName::from_str("log.log"), None, None), None);
+        assert_lookup("does_not_exist", "pyre/client/log/__init__.py", None, None);
+        // can be found, since we do an `init_lookup` and can find a result.
+        assert_lookup(
+            "log.log",
+            "pyre/client/log/__init__.py",
+            None,
+            Some("pyre/client/log/log.pyi"),
+        );
+        assert_lookup(
+            "pyre.client.log.log",
+            "pyre/client/log/__init__.py",
+            None,
+            Some("pyre/client/log/log.pyi"),
+        );
+        // can't be found, since we're not doing an `init_lookup`, so this should only
+        // be looked up through `pyre.client.log.format`.
+        assert_lookup("log.format", "pyre/client/log/log.pyi", None, None);
+        assert_lookup(
+            "pyre.client.log.format",
+            "pyre/client/log/log.pyi",
+            None,
+            Some("pyre/client/log/format.py"),
+        );
+        assert_lookup(
+            "pyre.client.log.log",
+            "pyre/client/log/__init__.py",
+            Some(ModuleStyle::Interface),
+            Some("pyre/client/log/log.pyi"),
+        );
+        assert_lookup(
+            "pyre.client.log.log",
+            "pyre/client/log/__init__.py",
+            Some(ModuleStyle::Executable),
+            Some("pyre/client/log/log.py"),
+        );
+        assert_lookup(
+            "pyre.client.log",
+            "pyre/client/log/__init__.py",
+            None,
+            Some("pyre/client/log/__init__.py"),
+        );
+        assert_lookup(
+            "pyre.client.log",
+            "pyre/client/log/__init__.py",
+            Some(ModuleStyle::Interface),
+            Some("pyre/client/log/__init__.py"),
+        );
+        assert_lookup(
+            "pyre.client.log",
+            "pyre/client/log/__init__.py",
+            Some(ModuleStyle::Executable),
+            Some("pyre/client/log/__init__.py"),
+        );
+        assert_lookup(
+            "click",
+            "pyre/client/log/__init__.py",
+            None,
+            Some("click/__init__.pyi"),
+        );
+        assert_lookup(
+            "colorama",
+            "pyre/client/log/__init__.py",
+            None,
+            Some("colorama/__init__.pyi"),
+        );
+        assert_lookup(
+            "colorama",
+            "click/__init__.pyi",
+            None,
+            Some("colorama/__init__.pyi"),
+        );
+        assert_lookup(
+            "colorama",
+            "click/__init__.pyi",
+            Some(ModuleStyle::Interface),
+            Some("colorama/__init__.pyi"),
+        );
+        assert_lookup(
+            "colorama",
+            "click/__init__.pyi",
+            Some(ModuleStyle::Executable),
+            Some("colorama/__init__.py"),
+        );
+        assert_lookup(
+            "colorama",
+            "colorama/__init__.pyi",
+            Some(ModuleStyle::Executable),
+            // we get .pyi here, even when requesting .py, since we've gone too far
+            Some("colorama/__init__.pyi"),
+        );
+        assert_lookup(
+            "colorama",
+            "colorama/__init__.py",
+            Some(ModuleStyle::Interface),
+            Some("colorama/__init__.pyi"),
+        );
+        assert_lookup("log.log", "click/__init__.pyi", None, None);
+        assert_lookup("log.log", "colorama/__init__.pyi", None, None);
+        assert_lookup("pyre.client.log.log", "click/__init__.py", None, None);
+        // test implicit_package lookups
+        assert_lookup(
+            "implicit_package.lib.utils",
+            "implicit_package/test/main.py",
+            None,
+            Some("implicit_package/test/lib/utils.py"),
+        );
+        assert_lookup(
+            "implicit_package.lib",
+            "implicit_package/test/main.py",
+            None,
+            Some("implicit_package/test/lib"),
+        );
+        assert_lookup(
+            "implicit_package.lib",
+            "implicit_package/test/lib/utils.py",
+            None,
+            Some("implicit_package/test/lib"),
+        );
+        assert_lookup(
+            "implicit_package",
+            "implicit_package/test/main.py",
+            None,
+            Some("implicit_package/test"),
+        );
+        assert_lookup(
+            "implicit_package",
+            "implicit_package/test/lib/utils.py",
+            None,
+            Some("implicit_package/test"),
+        );
+        assert_lookup(
+            "implicit_package.main",
+            "implicit_package/test",
+            None,
+            Some("implicit_package/test/main.py"),
+        );
+        assert_lookup(
+            "implicit_package.lib",
+            "implicit_package/test",
+            None,
+            Some("implicit_package/test/lib"),
+        );
+        assert_lookup(
+            "implicit_package",
+            "implicit_package/test/lib/utils.py",
+            None,
+            Some("implicit_package/test"),
+        );
+        assert_lookup(
+            "implicit_package",
+            "implicit_package/test/lib",
+            None,
+            Some("implicit_package/test"),
+        );
+        assert_lookup(
+            "implicit_package.main",
+            "implicit_package/test/lib/utils.py",
+            None,
+            None,
+        );
+
+        assert_lookup(
+            "generated",
+            "generated/main.py",
+            None,
+            Some("build-out/materialized/generated/__init__.py"),
+        );
+    }
+
+    #[test]
+    fn test_sourcedb_lookup_prefers_stub_package_for_same_module() {
+        let raw_db = TargetManifestDatabase::new(
+            smallmap! {
+                Target::from_string("//app:lib".to_owned()) => TargetManifest::lib(
+                    &[("app.model", &["app/model.py"])],
+                    &[
+                        "//aaa/torch:torch",
+                        "//zzz/torch-stubs:torch-stubs",
+                    ],
+                    "app/BUCK",
+                    &[],
+                    None,
+                ),
+                Target::from_string("//aaa/torch:torch".to_owned()) => TargetManifest::lib(
+                    &[("torch", &["third-party/torch/torch/__init__.pyi"])],
+                    &[],
+                    "third-party/torch/BUCK",
+                    &[],
+                    None,
+                ),
+                Target::from_string("//zzz/torch-stubs:torch-stubs".to_owned()) => TargetManifest::lib(
+                    &[("torch-stubs", &["pyrefly/tensor-shapes/pyrefly-torch-stubs/torch-stubs/__init__.pyi"])],
+                    &["//aaa/torch:torch"],
+                    "pyrefly/tensor-shapes/BUCK",
+                    &[],
+                    None,
+                ),
+            },
+            PathBuf::from("/repo"),
+        );
+        let root = raw_db.root.to_path_buf();
+        let files = smallset! { root.join("app/model.py") };
+        let db = QuerySourceDatabase::from_target_manifest_db(raw_db, &root, &files);
+
+        assert_eq!(
+            db.lookup(
+                ModuleName::from_str("torch"),
+                Some(&root.join("app/model.py")),
+                None
+            ),
+            Some(ModulePath::filesystem(root.join(
+                "pyrefly/tensor-shapes/pyrefly-torch-stubs/torch-stubs/__init__.pyi"
+            )))
+        );
+    }
+
+    #[test]
+    fn test_handle_from_module_path() {
+        let (db, root) = get_db();
+
+        let sys_info = SysInfo::new(PythonVersion::new(3, 12, 0), PythonPlatform::linux());
+        let assert_handle = |path, name| {
+            let name = ModuleName::from_str(name);
+            let module_path = ModulePath::filesystem(root.join(path));
+            assert_eq!(
+                db.handle_from_module_path(&module_path),
+                Some(Handle::new(name, module_path, sys_info.dupe())),
+                "got result for {path}, expected {name}",
+            );
+        };
+
+        assert_eq!(
+            db.handle_from_module_path(&ModulePath::filesystem(root.join("does_not_exist"))),
+            None,
+        );
+        assert_handle("pyre/client/log/__init__.py", "pyre.client.log");
+        assert_handle("pyre/client/log/log.py", "pyre.client.log.log");
+        assert_handle("pyre/client/log/log.pyi", "pyre.client.log.log");
+        assert_handle("click/__init__.pyi", "click");
+        assert_handle("click/__init__.py", "click");
+        assert_handle("click/__init__.py", "click");
+        assert_handle("colorama/__init__.py", "colorama");
+        assert_handle("colorama/__init__.pyi", "colorama");
+    }
+
+    #[test]
+    fn test_update_with_target_manifest() {
+        let (db, root) = get_db();
+        let manifest = TargetManifestDatabase::get_test_database();
+
+        assert!(!db.update_with_target_manifest(manifest).unwrap().0);
+
+        let manifest = TargetManifestDatabase::new(
+            smallmap! {
+                    Target::from_string("//colorama:py".to_owned()) => TargetManifest::lib(
+                        &[
+                        (
+                            "colorama",
+                            &[
+                            "colorama/__init__.py",
+                            "colorama/__init__.pyi",
+                            ]
+                        ),
+                        ],
+                        &[],
+                        "colorama/BUCK",
+                        &[],
+                        None,
+                    ),
+                    Target::from_string("//pyre/client/log:log".to_owned()) => TargetManifest::lib(
+                        &[
+                        (
+                            "pyre.client.log",
+                            &[
+                            "pyre/client/log/__init__.py"
+                            ]
+                        ),
+                        (
+                            "pyre.client.log.log",
+                            &[
+                            "pyre/client/log/log.py",
+                            "pyre/client/log/log.pyi",
+                            ]
+                        ),
+                        ],
+                        &[],
+                        "pyre/client/log/BUCK",
+                        &[],
+                        None,
+                    ),
+                    Target::from_string("//implicit_package/test:lib".to_owned()) => TargetManifest::lib(
+                        &[
+                        (
+                            "implicit_package.lib.utils", &[
+                                "implicit_package/test/lib/utils.py"
+                            ]
+                        )
+                        ],
+                        &[],
+                        "implicit_package/test/BUCK",
+                        &[
+                        ("implicit_package", &["implicit_package/test"]),
+                        ("implicit_package/lib", &["implicit_package/test/lib"]),
+                        ],
+                        None,
+                    ),
+            },
+            root.clone(),
+        );
+        let (manifest_db, _) = manifest.clone().produce_map();
+        assert!(db.update_with_target_manifest(manifest).unwrap().0);
+        let inner = db.inner.read();
+        assert_eq!(inner.db, manifest_db);
+        let expected_path_lookup = smallmap! {
+            InternedPath::new(root.join("colorama/__init__.py")) =>
+                Target::from_string("//colorama:py".to_owned()),
+            InternedPath::new(root.join("colorama/__init__.pyi")) =>
+                Target::from_string("//colorama:py".to_owned()),
+            InternedPath::new(root.join("pyre/client/log/__init__.py")) =>
+                Target::from_string("//pyre/client/log:log".to_owned()),
+            InternedPath::new(root.join("pyre/client/log/log.py")) =>
+                Target::from_string("//pyre/client/log:log".to_owned()),
+            InternedPath::new(root.join("pyre/client/log/log.pyi")) =>
+                Target::from_string("//pyre/client/log:log".to_owned()),
+            InternedPath::new(root.join("implicit_package/test/lib/utils.py")) =>
+                Target::from_string("//implicit_package/test:lib".to_owned()),
+        };
+        assert_eq!(inner.path_lookup, expected_path_lookup);
+        let expected_package_lookup = smallmap! {
+            InternedPath::new(root.join("implicit_package/test")) => smallset! {
+                Target::from_string("//implicit_package/test:lib".to_owned()),
+            },
+            InternedPath::new(root.join("implicit_package/test/lib")) => smallset! {
+                Target::from_string("//implicit_package/test:lib".to_owned()),
+            },
+            InternedPath::new(root.join("colorama/__init__.py")) => smallset! {
+                Target::from_string("//colorama:py".to_owned()),
+            },
+            InternedPath::new(root.join("colorama/__init__.pyi")) => smallset! {
+                Target::from_string("//colorama:py".to_owned()),
+            },
+            InternedPath::new(root.join("pyre/client/log/__init__.py")) => smallset! {
+                Target::from_string("//pyre/client/log:log".to_owned()),
+            },
+            // Synthesized parent packages from pyre.client.log.log
+            InternedPath::new(root.join("pyre/client")) => smallset! {
+                Target::from_string("//pyre/client/log:log".to_owned()),
+            },
+            InternedPath::new(root.join("pyre")) => smallset! {
+                Target::from_string("//pyre/client/log:log".to_owned()),
+            },
+        };
+        assert_eq!(inner.package_lookup, expected_package_lookup);
+    }
+
+    #[test]
+    fn test_get_paths_to_watch() {
+        let mut raw_db = TargetManifestDatabase::get_test_database();
+        let root = raw_db.root.to_path_buf();
+        let files = smallset! {
+            root.join("pyre/client/log/log.py"),
+            root.join("pyre/client/log/log.pyi"),
+        };
+        raw_db.extra_filetypes = smallset! {"thrift".to_owned()};
+
+        let db = QuerySourceDatabase::from_target_manifest_db(raw_db, &root, &files);
+
+        let expected = smallset! {
+            WatchPattern::root(InternedPath::from_path(&root), "**/*.py".to_owned()),
+            WatchPattern::root(InternedPath::from_path(&root), "**/*.pyi".to_owned()),
+            WatchPattern::root(InternedPath::from_path(&root), "**/*.ipynb".to_owned()),
+            WatchPattern::root(InternedPath::from_path(&root), "**/*.so".to_owned()),
+            WatchPattern::root(InternedPath::from_path(&root), "**/*.thrift".to_owned()),
+            WatchPattern::root(InternedPath::from_path(&root), "**/BUCK".to_owned()),
+        };
+        assert_eq!(db.get_paths_to_watch(), expected);
+    }
+
+    #[test]
+    fn test_cross_target_package_lookup() {
+        // Setup:
+        // - //dir:target1 has __init__.py
+        // - //dir:target2 has a.py and b.py, depends on target1
+        let raw_db = TargetManifestDatabase::new(
+            smallmap! {
+                Target::from_string("//dir:target1".to_owned()) => TargetManifest::lib(
+                    &[("dir", &["dir/__init__.py"])],
+                    &[],
+                    "dir/BUCK",
+                    &[],
+                    None
+                ),
+                Target::from_string("//dir:target2".to_owned()) => TargetManifest::lib(
+                    &[
+                        ("dir.a", &["dir/a.py"]),
+                        ("dir.b", &["dir/b.py"]),
+                    ],
+                    &["//dir:target1"],
+                    "dir/BUCK",
+                    &[],
+                    None
+                ),
+            },
+            PathBuf::from("/repo"),
+        );
+        let root = raw_db.root.to_path_buf();
+        let files = smallset! {
+            root.join("dir/a.py"),
+            root.join("dir/b.py"),
+        };
+
+        let db = QuerySourceDatabase::from_target_manifest_db(raw_db, &root, &files);
+
+        // When looking up 'dir' from a.py (which is in target2), we should find
+        // the __init__.py from target1 because target2 depends on target1
+        let result = db.lookup(
+            ModuleName::from_str("dir"),
+            Some(&root.join("dir/a.py")),
+            None,
+        );
+        assert!(
+            result.is_some(),
+            "Should be able to lookup 'dir' package from a.py"
+        );
+        let result_path = result.unwrap();
+        assert!(
+            result_path
+                .as_path()
+                .to_string_lossy()
+                .contains("__init__.py"),
+            "Lookup of 'dir' from a.py should resolve to __init__.py, got: {:?}",
+            result_path
+        );
+    }
+
+    #[test]
+    fn test_lookup_catch_all_fallback() {
+        let raw_db = TargetManifestDatabase::new(
+            smallmap! {
+                Target::from_string("//normal:target".to_owned()) => TargetManifest::lib(
+                    &[("normal.module", &["normal/module.py"])],
+                    &[],
+                    "normal/BUCK",
+                    &[],
+                    None,
+                ),
+                Target::from_string("//catch:all".to_owned()) => TargetManifest::lib(
+                    &[("fallback.module", &["fallback/module.py"])],
+                    &[],
+                    "fallback/BUCK",
+                    &[],
+                    None,
+                ),
+            },
+            PathBuf::from("/repo"),
+        );
+        let root = raw_db.root.to_path_buf();
+        let db = QuerySourceDatabase {
+            inner: RwLock::new(Inner::new()),
+            includes: Mutex::new(SmallSet::new()),
+            repo_root: InternedPath::from_path(&root),
+            querier: Arc::new(DummyQuerier {}),
+            cached_modules: ModulePathCache::new(),
+            catch_all_targets: vec![Target::from_string("//catch:all".to_owned())],
+            catch_all_targets_only: false,
+        };
+        let _ = db.update_with_target_manifest(raw_db);
+
+        // Origin is in path_lookup (for //normal:target), but fallback.module is not
+        // reachable from that target. Falls through to catch_all.
+        assert_eq!(
+            db.lookup(
+                ModuleName::from_str("fallback.module"),
+                Some(&root.join("normal/module.py")),
+                None,
+            ),
+            Some(ModulePath::filesystem(root.join("fallback/module.py"))),
+            "catch_all should find module when normal lookup fails",
+        );
+
+        // Origin is not in any lookup table. Goes directly to catch_all.
+        assert_eq!(
+            db.lookup(
+                ModuleName::from_str("fallback.module"),
+                Some(&root.join("unknown/file.py")),
+                None,
+            ),
+            Some(ModulePath::filesystem(root.join("fallback/module.py"))),
+            "catch_all should find module when origin is unknown",
+        );
+
+        // Module doesn't exist in any target including catch_all.
+        assert_eq!(
+            db.lookup(
+                ModuleName::from_str("nonexistent.module"),
+                Some(&root.join("unknown/file.py")),
+                None,
+            ),
+            None,
+            "should return None when module not found anywhere",
+        );
+    }
+
+    #[test]
+    fn test_lookup_prefers_normal_over_catch_all() {
+        let raw_db = TargetManifestDatabase::new(
+            smallmap! {
+                Target::from_string("//normal:target".to_owned()) => TargetManifest::lib(
+                    &[("shared.module", &["normal/shared.py"])],
+                    &[],
+                    "normal/BUCK",
+                    &[],
+                    None,
+                ),
+                Target::from_string("//catch:all".to_owned()) => TargetManifest::lib(
+                    &[("shared.module", &["catch_all/shared.py"])],
+                    &[],
+                    "catch_all/BUCK",
+                    &[],
+                    None,
+                ),
+            },
+            PathBuf::from("/repo"),
+        );
+        let root = raw_db.root.to_path_buf();
+        let db = QuerySourceDatabase {
+            inner: RwLock::new(Inner::new()),
+            includes: Mutex::new(SmallSet::new()),
+            repo_root: InternedPath::from_path(&root),
+            querier: Arc::new(DummyQuerier {}),
+            cached_modules: ModulePathCache::new(),
+            catch_all_targets: vec![Target::from_string("//catch:all".to_owned())],
+            catch_all_targets_only: false,
+        };
+        let _ = db.update_with_target_manifest(raw_db);
+
+        // shared.module is reachable from origin's own target, so normal
+        // lookup should succeed without falling through to catch_all.
+        assert_eq!(
+            db.lookup(
+                ModuleName::from_str("shared.module"),
+                Some(&root.join("normal/shared.py")),
+                None,
+            ),
+            Some(ModulePath::filesystem(root.join("normal/shared.py"))),
+            "normal lookup should take precedence over catch_all",
+        );
+    }
+
+    #[test]
+    fn test_query_source_db_includes_catch_all_targets() {
+        let db = QuerySourceDatabase {
+            inner: RwLock::new(Inner::new()),
+            includes: Mutex::new(SmallSet::new()),
+            repo_root: InternedPath::from_path(Path::new("/repo")),
+            querier: Arc::new(DummyQuerier {}),
+            cached_modules: ModulePathCache::new(),
+            catch_all_targets: vec![Target::from_string("//catch:all".to_owned())],
+            catch_all_targets_only: false,
+        };
+
+        let files = smallset! { InternedPath::new(PathBuf::from("/repo/file.py")) };
+        let (result, _) = db.query_source_db(files, false);
+        result.expect("query_source_db should succeed");
+
+        let includes = db.includes.lock();
+        let expected = smallset! {
+            Include::path(InternedPath::new(PathBuf::from("/repo/file.py"))),
+            Include::Target(Target::from_string("//catch:all".to_owned())),
+        };
+        assert_eq!(*includes, expected);
+    }
+
+    /// Fails every query, counting how many times it was asked.
+    #[derive(Debug)]
+    struct FailingQuerier {
+        calls: AtomicUsize,
+    }
+
+    impl SourceDbQuerier for FailingQuerier {
+        fn query_source_db(&self, _: &SmallSet<Include>, _: &Path) -> QueryResult {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            QueryResult {
+                db: Err(anyhow::anyhow!("buck2 exited with code 1")),
+                build_id: None,
+                build_duration: None,
+                parse_duration: None,
+                stdout_size: None,
+                exit_reason: None,
+            }
+        }
+
+        fn construct_command(&self, _: Option<&Path>) -> std::process::Command {
+            panic!("We shouldn't be calling this...");
+        }
+    }
+
+    /// A failed query must not record its include set. The next rebuild sees the same
+    /// open files, so recording them would make it short-circuit on the unchanged-inputs
+    /// check and report success without ever retrying — leaving the build system stuck
+    /// on the error it already surfaced.
+    #[test]
+    fn test_failed_query_retries_when_inputs_are_unchanged() {
+        let querier = Arc::new(FailingQuerier {
+            calls: AtomicUsize::new(0),
+        });
+        let db = QuerySourceDatabase {
+            inner: RwLock::new(Inner::new()),
+            includes: Mutex::new(SmallSet::new()),
+            repo_root: InternedPath::from_path(Path::new("/repo")),
+            querier: querier.dupe(),
+            cached_modules: ModulePathCache::new(),
+            catch_all_targets: vec![],
+            catch_all_targets_only: false,
+        };
+        let files = || smallset! { InternedPath::new(PathBuf::from("/repo/file.py")) };
+
+        let (first, _) = db.query_source_db(files(), false);
+        assert!(first.is_err(), "the querier fails every call");
+        assert_eq!(querier.calls.load(Ordering::SeqCst), 1);
+
+        let (second, _) = db.query_source_db(files(), false);
+        assert!(
+            second.is_err(),
+            "a retry after a failure must surface the error again, not a stale success"
+        );
+        assert_eq!(
+            querier.calls.load(Ordering::SeqCst),
+            2,
+            "the failed query must not have recorded its include set"
+        );
+        assert!(
+            db.includes.lock().is_empty(),
+            "includes should still be empty after two failed queries"
+        );
+    }
+
+    #[test]
+    fn test_query_source_db_catch_all_targets_only() {
+        let db = QuerySourceDatabase {
+            inner: RwLock::new(Inner::new()),
+            includes: Mutex::new(SmallSet::new()),
+            repo_root: InternedPath::from_path(Path::new("/repo")),
+            querier: Arc::new(DummyQuerier {}),
+            cached_modules: ModulePathCache::new(),
+            catch_all_targets: vec![Target::from_string("//catch:all".to_owned())],
+            catch_all_targets_only: true,
+        };
+
+        let files = smallset! { InternedPath::new(PathBuf::from("/repo/file.py")) };
+        let (result, _) = db.query_source_db(files, false);
+        result.expect("query_source_db should succeed");
+
+        // With catch_all_targets_only, files are cleared before building includes
+        let includes = db.includes.lock();
+        let expected = smallset! {
+            Include::Target(Target::from_string("//catch:all".to_owned())),
+        };
+        assert_eq!(*includes, expected);
+    }
+
+    #[test]
+    fn test_cross_target_package_lookup_no_dep() {
+        // Setup:
+        // - //dir:target1 has __init__.py and depends on target2
+        // - //dir:target2 has a.py and b.py, but does NOT depend on target1
+        let raw_db = TargetManifestDatabase::new(
+            smallmap! {
+                Target::from_string("//dir:target1".to_owned()) => TargetManifest::lib(
+                    &[("dir", &["dir/__init__.py"])],
+                    &["//dir:target2"],  // target1 depends on target2
+                    "dir/BUCK",
+                    &[],
+                    None
+                ),
+                Target::from_string("//dir:target2".to_owned()) => TargetManifest::lib(
+                    &[
+                        ("dir.a", &["dir/a.py"]),
+                        ("dir.b", &["dir/b.py"]),
+                    ],
+                    &[],  // target2 does NOT depend on target1
+                    "dir/BUCK",
+                    &[],
+                    None
+                ),
+            },
+            PathBuf::from("/repo"),
+        );
+        let root = raw_db.root.to_path_buf();
+        let files = smallset! {
+            root.join("dir/a.py"),
+            root.join("dir/b.py"),
+        };
+
+        let db = QuerySourceDatabase::from_target_manifest_db(raw_db, &root, &files);
+
+        // When looking up 'dir' from a.py (which is in target2), we should NOT find
+        // the __init__.py because target2 doesn't depend on target1.
+        // Instead, we get the synthesized directory package.
+        let result = db.lookup(
+            ModuleName::from_str("dir"),
+            Some(&root.join("dir/a.py")),
+            None,
+        );
+        assert!(
+            result.is_some(),
+            "Should be able to lookup 'dir' package from a.py (synthesized)"
+        );
+        let result_path = result.unwrap();
+        // The result should be the synthesized directory, not __init__.py
+        assert!(
+            !result_path
+                .as_path()
+                .to_string_lossy()
+                .contains("__init__.py"),
+            "Lookup of 'dir' from a.py should NOT resolve to __init__.py (no dep), got: {:?}",
+            result_path
+        );
+    }
+
+    /// Integration test modelling a real-world project with a flat `py_library`,
+    /// a `py_package`, and a test target. The build system JSON response names
+    /// shared `configs`, omits `buildfile_path` on every target, and omits
+    /// `deps` on `//Project:MyLib`.
+    /// Every target here relies on the top-level `root`; per-target `root` is
+    /// covered by `test_per_target_root_overrides_path_resolution` below.
+    ///
+    /// Project layout:
+    /// ```text
+    /// /src/Project
+    /// ├── Foo.py
+    /// ├── MyPkg
+    /// │   ├── __init__.py
+    /// │   └── Utils.py
+    /// ├── sub1
+    /// │   └── Bar.py
+    /// └── test
+    ///     ├── lib.py
+    ///     └── test.py
+    /// ```
+    #[test]
+    fn test_json_integration_with_named_configs() {
+        let json = r#"
+{
+  "root": "/src/Project",
+  "db": {
+    "//Project:MyLib": {
+      "srcs": {
+        "Foo": ["Foo.py"],
+        "Bar": ["sub1/Bar.py"]
+      },
+      "config": "lenient",
+      "python_version": "3.12",
+      "python_platform": "linux"
+    },
+    "//Project:MyPkg": {
+      "srcs": {
+        "MyPkg": ["MyPkg/__init__.py"],
+        "MyPkg.Utils": ["MyPkg/Utils.py"]
+      },
+      "deps": ["//Project:MyLib"],
+      "config": "strict",
+      "python_version": "3.12",
+      "python_platform": "linux"
+    },
+    "//Project/test:test": {
+      "srcs": {
+        "test.lib": ["test/lib.py"],
+        "test.test": ["test/test.py"]
+      },
+      "deps": ["//Project:MyLib", "//Project:MyPkg"],
+      "python_version": "3.12",
+      "python_platform": "linux"
+    }
+  },
+  "configs": {
+    "lenient": { "errors": { "missing-import": "warn" } },
+    "strict": { "check-unannotated-defs": true }
+  }
+}
+        "#;
+
+        let parsed: TargetManifestDatabase = serde_json::from_str(json).unwrap();
+        let root = parsed.root.clone();
+        let db = QuerySourceDatabase::from_target_manifest_db(
+            parsed,
+            &root,
+            &smallset! {
+                PathBuf::from("/src/Project/Foo.py"),
+                PathBuf::from("/src/Project/sub1/Bar.py"),
+                PathBuf::from("/src/Project/test/test.py"),
+            },
+        );
+
+        // --- Within-target lookup: srcs are absolutized against the top-level root ---
+
+        assert_eq!(
+            db.lookup(
+                ModuleName::from_str("Foo"),
+                Some(Path::new("/src/Project/sub1/Bar.py")),
+                None,
+            ),
+            Some(ModulePath::filesystem(PathBuf::from("/src/Project/Foo.py"))),
+            "Foo should resolve from within the same target",
+        );
+
+        assert_eq!(
+            db.lookup(
+                ModuleName::from_str("Bar"),
+                Some(Path::new("/src/Project/Foo.py")),
+                None,
+            ),
+            Some(ModulePath::filesystem(PathBuf::from(
+                "/src/Project/sub1/Bar.py"
+            ))),
+            "Bar should resolve from within the same target",
+        );
+
+        // --- Cross-target dep resolution ---
+
+        // From test.py (in //Project/test:test which deps on //Project:MyLib),
+        // we should be able to find Foo
+        assert_eq!(
+            db.lookup(
+                ModuleName::from_str("Foo"),
+                Some(Path::new("/src/Project/test/test.py")),
+                None,
+            ),
+            Some(ModulePath::filesystem(PathBuf::from("/src/Project/Foo.py"))),
+            "test target should resolve Foo via dep on MyLib",
+        );
+
+        // From test.py, we should also find MyPkg.Utils via dep on MyPkg
+        assert_eq!(
+            db.lookup(
+                ModuleName::from_str("MyPkg.Utils"),
+                Some(Path::new("/src/Project/test/test.py")),
+                None,
+            ),
+            Some(ModulePath::filesystem(PathBuf::from(
+                "/src/Project/MyPkg/Utils.py"
+            ))),
+            "test target should resolve MyPkg.Utils via dep on MyPkg",
+        );
+
+        // Within-target lookup: test.lib from test.test
+        assert_eq!(
+            db.lookup(
+                ModuleName::from_str("test.lib"),
+                Some(Path::new("/src/Project/test/test.py")),
+                None,
+            ),
+            Some(ModulePath::filesystem(PathBuf::from(
+                "/src/Project/test/lib.py"
+            ))),
+            "test.lib should be resolvable within the test target",
+        );
+
+        // --- Per-target config ---
+
+        let lookup_config = |path: &str| {
+            let name = db.get_target_config_name(Some(Path::new(path)))?;
+            Some(db.get_config(&name).expect("named config must exist"))
+        };
+
+        assert_eq!(
+            lookup_config("/src/Project/Foo.py").unwrap()["errors"]["missing-import"],
+            serde_json::json!("warn"),
+            "MyLib should resolve to the lenient config",
+        );
+
+        assert_eq!(
+            lookup_config("/src/Project/MyPkg/__init__.py").unwrap()["check-unannotated-defs"],
+            serde_json::json!(true),
+            "MyPkg should resolve to the strict config",
+        );
+
+        // The absence assertions below only mean what they say while this path
+        // still belongs to the test target, since an unowned path is also absent.
+        assert_eq!(
+            db.get_target(Some(Path::new("/src/Project/test/test.py"))),
+            Some(Target::from_string("//Project/test:test".to_owned())),
+            "test.py should belong to the test target",
+        );
+
+        assert!(
+            lookup_config("/src/Project/test/test.py").is_none(),
+            "test target should have no config override",
+        );
+
+        // --- Falling back to the top-level root ---
+
+        assert!(
+            db.get_target_root(Some(Path::new("/src/Project/test/test.py")))
+                .is_none(),
+            "test target has no per-target root override",
+        );
+
+        // --- Optional deps/buildfile_path ---
+
+        // MyLib omits deps and buildfile_path in JSON; they should default
+        let mylib_manifest = db
+            .inner
+            .read()
+            .db
+            .get(&Target::from_string("//Project:MyLib".to_owned()))
+            .unwrap()
+            .clone();
+        assert!(
+            mylib_manifest.deps.is_empty(),
+            "MyLib should have empty deps when omitted from JSON",
+        );
+        assert_eq!(
+            mylib_manifest.buildfile_path,
+            PathBuf::from("/src/Project"),
+            "MyLib's buildfile_path should default to the root when omitted from JSON",
+        );
+
+        // --- Unknown file returns None ---
+        assert_eq!(
+            db.lookup(
+                ModuleName::from_str("Foo"),
+                Some(Path::new("/src/Project/nonexistent.py")),
+                None,
+            ),
+            None,
+            "lookup from an unknown origin should return None",
+        );
+    }
+
+    /// Tests per-target root overrides: library and test targets use different
+    /// `root` values so their source paths are absolutized independently.
+    #[test]
+    fn test_per_target_root_overrides_path_resolution() {
+        let json = r#"
+{
+  "root": "/repo",
+  "db": {
+    "//lib:mylib": {
+      "srcs": {
+        "mylib.core": ["core.py"]
+      },
+      "root": "/repo/lib",
+      "config": "lenient",
+      "python_version": "3.12",
+      "python_platform": "linux"
+    },
+    "//tests:mytest": {
+      "srcs": {
+        "tests.test_core": ["test_core.py"]
+      },
+      "deps": ["//lib:mylib"],
+      "root": "/repo/tests",
+      "python_version": "3.12",
+      "python_platform": "linux"
+    }
+  },
+  "configs": {
+    "lenient": { "errors": { "missing-import": "warn" } }
+  }
+}
+        "#;
+
+        let parsed: TargetManifestDatabase = serde_json::from_str(json).unwrap();
+        let root = parsed.root.clone();
+        let db = QuerySourceDatabase::from_target_manifest_db(
+            parsed,
+            &root,
+            &smallset! {
+                PathBuf::from("/repo/tests/test_core.py"),
+            },
+        );
+
+        // Per-target root: lib srcs absolutized against /repo/lib
+        assert_eq!(
+            db.lookup(
+                ModuleName::from_str("mylib.core"),
+                Some(Path::new("/repo/tests/test_core.py")),
+                None,
+            ),
+            Some(ModulePath::filesystem(PathBuf::from("/repo/lib/core.py"))),
+            "test target should resolve mylib.core via dep, absolutized against lib root",
+        );
+
+        // Per-target root retrieval
+        assert_eq!(
+            db.get_target_root(Some(Path::new("/repo/lib/core.py"))),
+            Some(PathBuf::from("/repo/lib")),
+            "lib target's per-target root should be /repo/lib",
+        );
+        assert_eq!(
+            db.get_target_root(Some(Path::new("/repo/tests/test_core.py"))),
+            Some(PathBuf::from("/repo/tests")),
+            "test target's per-target root should be /repo/tests",
+        );
+
+        // Config retrieval
+        let lib_config = db
+            .get_target_config_name(Some(Path::new("/repo/lib/core.py")))
+            .and_then(|name| db.get_config(&name));
+        assert_eq!(
+            lib_config.unwrap()["errors"]["missing-import"],
+            serde_json::json!("warn"),
+            "lib target should resolve to the lenient config",
+        );
+
+        // The assertion above that this path has a per-target root already
+        // proves it belongs to the test target, so an absent config here can
+        // only mean the target sets none.
+        assert!(
+            db.get_target_config_name(Some(Path::new("/repo/tests/test_core.py")))
+                .is_none(),
+            "test target should have no config override",
+        );
+    }
+
+    /// A `default_config` is reported for every file, whether or not it belongs
+    /// to a target, so a build system can supply settings without a config file.
+    #[test]
+    fn test_default_config_applies_to_targets_and_unknown_files() {
+        let json = r#"
+{
+  "root": "/repo",
+  "db": {
+    "//lib:mylib": {
+      "srcs": {
+        "mylib.core": ["core.py"]
+      },
+      "config": "strict",
+      "python_version": "3.12",
+      "python_platform": "linux"
+    },
+    "//lib:other": {
+      "srcs": {
+        "mylib.other": ["other.py"]
+      },
+      "python_version": "3.12",
+      "python_platform": "linux"
+    }
+  },
+  "configs": {
+    "strict": { "check-unannotated-defs": true },
+    "repo-wide": { "errors": { "missing-import": "warn" } }
+  },
+  "default_config": "repo-wide"
+}
+        "#;
+
+        let parsed: TargetManifestDatabase = serde_json::from_str(json).unwrap();
+        let root = parsed.root.clone();
+        let db = QuerySourceDatabase::from_target_manifest_db(
+            parsed,
+            &root,
+            &smallset! { PathBuf::from("/repo/core.py") },
+        );
+
+        let default_config = db.get_default_config_name().expect("default_config is set");
+        assert_eq!(
+            db.get_config(&default_config).unwrap()["errors"]["missing-import"],
+            serde_json::json!("warn"),
+        );
+
+        // A target naming a config still reports it; the default supplies
+        // whatever that config leaves unset.
+        assert_eq!(
+            db.get_target_config_name(Some(Path::new("/repo/core.py")))
+                .map(|name| name.to_string())
+                .as_deref(),
+            Some("strict"),
+        );
+
+        // A target naming no config, and a file in no target at all, both fall
+        // back to the default alone.
+        assert!(
+            db.get_target_config_name(Some(Path::new("/repo/other.py")))
+                .is_none(),
+        );
+        assert!(
+            db.get_target_config_name(Some(Path::new("/repo/untracked.py")))
+                .is_none(),
+        );
+    }
+
+    /// Without a `default_config`, files fall through to the Pyrefly config file.
+    #[test]
+    fn test_no_default_config() {
+        let json = r#"
+{
+  "root": "/repo",
+  "db": {
+    "//lib:mylib": {
+      "srcs": {
+        "mylib.core": ["core.py"]
+      },
+      "python_version": "3.12",
+      "python_platform": "linux"
+    }
+  }
+}
+        "#;
+
+        let parsed: TargetManifestDatabase = serde_json::from_str(json).unwrap();
+        let root = parsed.root.clone();
+        let db = QuerySourceDatabase::from_target_manifest_db(
+            parsed,
+            &root,
+            &smallset! { PathBuf::from("/repo/core.py") },
+        );
+
+        assert!(db.get_default_config_name().is_none());
+    }
+
+    /// A target naming a config that `configs` does not define is rejected, rather
+    /// than silently resolving to no settings.
+    #[test]
+    fn test_unknown_target_config_is_rejected() {
+        let json = r#"
+{
+  "root": "/repo",
+  "db": {
+    "//lib:mylib": {
+      "srcs": {
+        "mylib.core": ["core.py"]
+      },
+      "config": "strcit",
+      "python_version": "3.12",
+      "python_platform": "linux"
+    }
+  },
+  "configs": {
+    "strict": { "check-unannotated-defs": true }
+  }
+}
+        "#;
+
+        let (db, _) = get_db();
+        let before = db.inner.read().db.clone();
+
+        let error = db
+            .update_with_target_manifest(serde_json::from_str(json).unwrap())
+            .expect_err("a target naming an undefined config is rejected");
+        assert!(
+            error.to_string().contains("strcit"),
+            "the error should name the offending config, got: {error}",
+        );
+        assert_eq!(
+            db.inner.read().db,
+            before,
+            "a rejected response must not partially update the source DB",
+        );
+    }
+
+    /// A `default_config` naming an entry that `configs` does not define is rejected
+    /// on the same grounds as an unknown target config.
+    #[test]
+    fn test_unknown_default_config_is_rejected() {
+        let json = r#"
+{
+  "root": "/repo",
+  "db": {
+    "//lib:mylib": {
+      "srcs": {
+        "mylib.core": ["core.py"]
+      },
+      "python_version": "3.12",
+      "python_platform": "linux"
+    }
+  },
+  "configs": {
+    "strict": { "check-unannotated-defs": true }
+  },
+  "default_config": "repo-wide"
+}
+        "#;
+
+        let (db, _) = get_db();
+        let error = db
+            .update_with_target_manifest(serde_json::from_str(json).unwrap())
+            .expect_err("a `default_config` naming an undefined config is rejected");
+        assert!(
+            error.to_string().contains("repo-wide"),
+            "the error should name the offending config, got: {error}",
+        );
+    }
+
+    /// Succeeds every query, returning a response whose `default_config` is undefined.
+    #[derive(Debug)]
+    struct UndefinedConfigQuerier {
+        calls: AtomicUsize,
+    }
+
+    impl SourceDbQuerier for UndefinedConfigQuerier {
+        fn query_source_db(&self, _: &SmallSet<Include>, _: &Path) -> QueryResult {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let mut db = TargetManifestDatabase::get_test_database();
+            db.default_config = Some(serde_json::from_str("\"repo-wide\"").unwrap());
+            QueryResult {
+                db: Ok(db),
+                build_id: None,
+                build_duration: None,
+                parse_duration: None,
+                stdout_size: None,
+                exit_reason: None,
+            }
+        }
+
+        fn construct_command(&self, _: Option<&Path>) -> std::process::Command {
+            panic!("We shouldn't be calling this...");
+        }
+    }
+
+    /// A response rejected while being ingested must not record its include set, for
+    /// the same reason a failed query must not: the next rebuild would short-circuit
+    /// on the unchanged-inputs check and report success against an empty source DB.
+    #[test]
+    fn test_rejected_response_retries_when_inputs_are_unchanged() {
+        let querier = Arc::new(UndefinedConfigQuerier {
+            calls: AtomicUsize::new(0),
+        });
+        let db = QuerySourceDatabase {
+            inner: RwLock::new(Inner::new()),
+            includes: Mutex::new(SmallSet::new()),
+            repo_root: InternedPath::from_path(Path::new("/repo")),
+            querier: querier.dupe(),
+            cached_modules: ModulePathCache::new(),
+            catch_all_targets: vec![],
+            catch_all_targets_only: false,
+        };
+        let files = || smallset! { InternedPath::new(PathBuf::from("/repo/file.py")) };
+
+        let (first, _) = db.query_source_db(files(), false);
+        assert!(first.is_err(), "the response names an undefined config");
+        assert_eq!(querier.calls.load(Ordering::SeqCst), 1);
+
+        let (second, _) = db.query_source_db(files(), false);
+        assert!(
+            second.is_err(),
+            "a retry after a rejected response must surface the error again, not a stale success"
+        );
+        assert_eq!(
+            querier.calls.load(Ordering::SeqCst),
+            2,
+            "the rejected response must not have recorded its include set"
+        );
+        assert!(
+            db.includes.lock().is_empty(),
+            "includes should still be empty after two rejected responses"
+        );
+    }
+}
