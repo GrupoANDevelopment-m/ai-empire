@@ -1,0 +1,27 @@
+name: crm
+version: 1.0.0
+description: Manage customer relationships — contacts, deals, activities
+capabilities:
+  - crm
+  - contacts
+  - deals
+required_mcps: []
+sandbox_profile: standard
+network_policy:
+  allowed:
+    - api.hubapi.com
+    - *.salesforce.com
+self_test:
+  command: "python3 -c 'from .tools.search_contacts import search_contacts; print(\"ok\")'"
+  timeout: 10
+tools:
+  - name: search_contacts
+  - name: create_contact
+  - name: update_contact
+  - name: delete_contact
+  - name: list_deals
+  - name: create_deal
+  - name: update_deal_stage
+  - name: add_activity
+  - name: get_pipeline
+  - name: forecast_revenue

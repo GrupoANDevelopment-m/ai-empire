@@ -1,0 +1,17 @@
+name: summarization
+version: 1.0.0
+description: Summarize long texts into key points
+capabilities:
+  - nlp
+  - summarization
+required_mcps: []
+sandbox_profile: standard
+network_policy: { allowed: [] }
+self_test:
+  command: "python3 -c 'from .tools.summarize import summarize; print(\"ok\")'"
+  timeout: 10
+tools:
+  - name: summarize
+  - name: extract_key_points
+  - name: generate_tldr
+  - name: bullet_points

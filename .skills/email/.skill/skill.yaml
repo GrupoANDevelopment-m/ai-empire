@@ -1,0 +1,42 @@
+name: email
+version: 2.0.0
+description: Send/receive emails with templates, attachments, and tracking
+author: AI Empire
+capabilities:
+  - email
+  - smtp
+  - imap
+  - templates
+required_mcps: []
+sandbox_profile: standard
+network_policy:
+  allowed:
+    - smtp.gmail.com
+    - imap.gmail.com
+    - smtp.outlook.com
+    - smtp.sendgrid.net
+    - api.sendgrid.com
+self_test:
+  command: "python3 -c 'from .tools.send_email import send_email; print(\"ok\")'"
+  timeout: 10
+tools:
+  - name: send_email
+    description: Send an email with optional attachments
+  - name: send_bulk
+    description: Send bulk emails with personalization
+  - name: list_templates
+    description: List available email templates
+  - name: render_template
+    description: Render a template with variables
+  - name: check_inbox
+    description: Check inbox for new messages
+  - name: search_emails
+    description: Search emails by criteria
+  - name: get_email
+    description: Get a specific email by ID
+  - name: reply_to_email
+    description: Reply to an email
+  - name: forward_email
+    description: Forward an email
+  - name: add_attachment
+    description: Attach a file to draft

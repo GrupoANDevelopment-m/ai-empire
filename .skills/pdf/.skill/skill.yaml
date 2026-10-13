@@ -1,0 +1,24 @@
+name: pdf
+version: 1.0.0
+description: Create, parse, and manipulate PDF documents
+capabilities:
+  - pdf
+  - documents
+required_mcps: []
+sandbox_profile: heavy
+network_policy:
+  allowed: []
+self_test:
+  command: "python3 -c 'import pypdf; print(\"ok\")'"
+  timeout: 30
+tools:
+  - name: create_pdf
+  - name: parse_pdf
+  - name: extract_text
+  - name: extract_images
+  - name: merge_pdfs
+  - name: split_pdf
+  - name: add_watermark
+  - name: encrypt_pdf
+  - name: decrypt_pdf
+  - name: pdf_to_image

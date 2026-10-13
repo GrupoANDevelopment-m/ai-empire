@@ -1,0 +1,23 @@
+name: web-search
+version: 2.0.0
+description: Search the web and extract information
+capabilities:
+  - search
+  - web
+required_mcps: []
+sandbox_profile: standard
+network_policy:
+  allowed:
+    - "*"
+self_test:
+  command: "python3 -c 'from .tools.search import search; print(\"ok\")'"
+  timeout: 10
+tools:
+  - name: search
+  - name: search_news
+  - name: search_images
+  - name: fetch_url
+  - name: extract_text
+  - name: extract_links
+  - name: deep_research
+  - name: summarize_url

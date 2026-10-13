@@ -1,0 +1,28 @@
+name: social-media
+version: 1.5.0
+description: Post content to social media platforms
+capabilities:
+  - social
+  - publishing
+required_mcps: []
+sandbox_profile: standard
+network_policy:
+  allowed:
+    - api.twitter.com
+    - graph.facebook.com
+    - api.linkedin.com
+    - api.instagram.com
+self_test:
+  command: "python3 -c 'from .tools.post_linkedin import post_linkedin; print(\"ok\")'"
+  timeout: 10
+tools:
+  - name: post_linkedin
+  - name: post_twitter
+  - name: post_facebook
+  - name: post_instagram
+  - name: post_thread
+  - name: schedule_post
+  - name: get_analytics
+  - name: get_followers
+  - name: search_mentions
+  - name: reply_to_mention

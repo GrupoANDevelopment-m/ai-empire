@@ -1,0 +1,20 @@
+name: code-execution
+version: 1.0.0
+description: Execute code in a sandboxed environment
+capabilities:
+  - code
+  - execution
+required_mcps: []
+sandbox_profile: standard
+network_policy:
+  allowed: []
+self_test:
+  command: "python3 -c 'from .tools.run_python import run_python; print(\"ok\")'"
+  timeout: 10
+tools:
+  - name: run_python
+  - name: run_javascript
+  - name: run_bash
+  - name: run_sql
+  - name: install_package
+  - name: list_packages

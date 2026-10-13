@@ -1,0 +1,27 @@
+name: data-analysis
+version: 2.0.0
+description: Analyze data with pandas, numpy, scipy
+capabilities:
+  - data
+  - analysis
+  - statistics
+required_mcps: []
+sandbox_profile: heavy
+network_policy:
+  allowed: []
+self_test:
+  command: "python3 -c 'import pandas; print(\"ok\")'"
+  timeout: 30
+tools:
+  - name: load_csv
+  - name: load_json
+  - name: load_excel
+  - name: describe
+  - name: group_by
+  - name: pivot
+  - name: correlation
+  - name: regression
+  - name: time_series_decompose
+  - name: detect_outliers
+  - name: normalize
+  - name: plot

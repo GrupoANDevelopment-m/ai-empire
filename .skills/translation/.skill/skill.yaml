@@ -1,0 +1,16 @@
+name: translation
+version: 1.0.0
+description: Translate text between languages
+capabilities:
+  - translation
+  - nlp
+required_mcps: []
+sandbox_profile: standard
+network_policy: { allowed: ["*"] }
+self_test:
+  command: "python3 -c 'from .tools.translate import translate; print(\"ok\")'"
+  timeout: 10
+tools:
+  - name: translate
+  - name: detect_language
+  - name: batch_translate

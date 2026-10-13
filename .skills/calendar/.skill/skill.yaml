@@ -1,0 +1,25 @@
+name: calendar
+version: 1.0.0
+description: Schedule meetings and manage calendar events
+capabilities:
+  - calendar
+  - scheduling
+  - meetings
+required_mcps: []
+sandbox_profile: standard
+network_policy:
+  allowed:
+    - www.googleapis.com
+    - graph.microsoft.com
+self_test:
+  command: "python3 -c 'from .tools.list_events import list_events; print(\"ok\")'"
+  timeout: 10
+tools:
+  - name: list_events
+  - name: create_event
+  - name: update_event
+  - name: delete_event
+  - name: find_slot
+  - name: book_meeting
+  - name: send_invite
+  - name: check_availability
