@@ -1,0 +1,33 @@
+apiVersion: v2
+name: ai-empire
+description: AI Empire — Self-hosted AI Agent Platform
+type: application
+version: 4.0.0
+appVersion: "4.0.0"
+home: https://github.com/GrupoANDevelopment-m/ai-empire
+sources:
+  - https://github.com/GrupoANDevelopment-m/ai-empire
+maintainers:
+  - name: GrupoANDevelopment-m
+    email: contact@grupoan.dev
+keywords:
+  - ai
+  - agents
+  - llm
+  - platform
+  - self-hosted
+  - langgraph
+  - mcp
+dependencies:
+  - name: postgresql
+    version: "15.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: postgresql.enabled
+  - name: redis
+    version: "18.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: redis.enabled
+  - name: grafana
+    version: "7.x.x"
+    repository: https://charts.bitnami.com/bitnami
+    condition: grafana.enabled

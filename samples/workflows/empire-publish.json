@@ -1,0 +1,47 @@
+{
+  "name": "empire_publish",
+  "description": "Publish content to multiple channels",
+  "version": "1.0.0",
+  "trigger": "user.messages.new",
+  "steps": [
+    {
+      "id": "rewrite_per_channel",
+      "type": "parallel",
+      "config": {
+        "branches": [
+          {
+            "id": "linkedin",
+            "prompt": "Rewrite for LinkedIn: professional, 1300 chars max"
+          },
+          {
+            "id": "twitter",
+            "prompt": "Rewrite for Twitter: thread format, 280 chars each"
+          },
+          {
+            "id": "instagram",
+            "prompt": "Rewrite for Instagram: caption + 10 hashtags"
+          }
+        ]
+      }
+    },
+    {
+      "id": "generate_image",
+      "type": "tool",
+      "config": {
+        "tool": "muapi.generate_image",
+        "params": {"aspect_ratio": "1:1", "model": "flux-pro"}
+      }
+    },
+    {
+      "id": "publish",
+      "type": "parallel",
+      "config": {
+        "branches": [
+          {"id": "publish_linkedin", "tool": "browser_automation", "action": "post_linkedin"},
+          {"id": "publish_twitter", "tool": "browser_automation", "action": "post_twitter"},
+          {"id": "publish_instagram", "tool": "browser_automation", "action": "post_instagram"}
+        ]
+      }
+    }
+  ]
+}

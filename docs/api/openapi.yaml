@@ -1,0 +1,225 @@
+openapi: 3.0.3
+info:
+  title: AI Empire API
+  description: |
+    AI Empire is a self-hosted AI agent platform. This API exposes
+    56+ tools across 3 skills (browser-automation, muapi-studio, saas-b2b).
+  version: 4.0.0
+  contact:
+    name: Grupo AN Development
+    email: contact@grupoan.dev
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://empire.example.com
+    description: Production
+  - url: http://localhost:8080
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  
+  schemas:
+    Error:
+      type: object
+      properties:
+        detail:
+          type: string
+        code:
+          type: string
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    LoginResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+        expires_in:
+          type: integer
+    ChatRequest:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+        session_id:
+          type: string
+          format: uuid
+        stream:
+          type: boolean
+    ChatResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+        response:
+          type: string
+        tool_calls:
+          type: array
+        tokens_used:
+          type: integer
+        cost:
+          type: number
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        uptime:
+          type: number
+        components:
+          type: object
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+  
+  /health/live:
+    get:
+      summary: Kubernetes liveness probe
+      security: []
+      responses:
+        '200':
+          description: Process is alive
+  /health/ready:
+    get:
+      summary: Kubernetes readiness probe
+      security: []
+      responses:
+        '200':
+          description: Ready to accept traffic
+  
+  /api/auth/login:
+    post:
+      summary: Login with email + password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Invalid credentials
+        '429':
+          description: Rate limited
+  
+  /api/capabilities:
+    get:
+      summary: List installed skills and tools
+      responses:
+        '200':
+          description: List of skills and tools
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skills:
+                    type: array
+                  tools:
+                    type: array
+  
+  /api/chat:
+    post:
+      summary: Send a chat message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: Chat response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+        '503':
+          description: No LLM available
+  
+  /api/security/sanitize:
+    post:
+      summary: Sanitize HTML using bleach
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+      responses:
+        '200':
+          description: Sanitized text
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sanitized:
+                    type: string
+                  removed:
+                    type: array
+  
+  /api/browser/sessions:
+    get:
+      summary: List browser sessions
+      responses:
+        '200':
+          description: List of sessions
+    post:
+      summary: Open new browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenant_id:
+                  type: string
+                profile:
+                  type: string
+                headless:
+                  type: boolean
+      responses:
+        '200':
+          description: Session created

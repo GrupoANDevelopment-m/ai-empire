@@ -1,0 +1,25 @@
+{
+  "session_id": "00000000-0000-0000-0000-bbbbbbbbbbbb",
+  "title": "Research workflow - market analysis",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Pesquise os 5 principais concorrentes de AI agents no Brasil e me dê um resumo"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {"name": "web_search", "arguments": {"query": "AI agent platform Brasil 2026"}},
+        {"name": "web_search", "arguments": {"query": "chatbot enterprise Brasil preço"}}
+      ]
+    },
+    {
+      "role": "tool",
+      "content": "[{\"title\": \"Concorrente 1\", \"url\": \"...\", \"snippet\": \"...\"}, ...]"
+    },
+    {
+      "role": "assistant",
+      "content": "Encontrei 5 concorrentes principais:\n\n1. **Plataforma A** — foco em atendimento, R$ 5k/mês\n2. **Plataforma B** — código aberto, self-hosted\n3. **Plataforma C** — enterprise, R$ 20k/mês\n4. **Plataforma D** — multi-tenant SaaS\n5. **Plataforma E** — vertical para e-commerce\n\nQuer que eu aprofunde em algum?"
+    }
+  ]
+}

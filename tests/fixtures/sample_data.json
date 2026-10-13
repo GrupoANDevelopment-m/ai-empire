@@ -1,0 +1,8 @@
+{
+  "name": "Test Data",
+  "values": [1, 2, 3, 4, 5],
+  "metadata": {
+    "source": "test",
+    "version": "1.0"
+  }
+}

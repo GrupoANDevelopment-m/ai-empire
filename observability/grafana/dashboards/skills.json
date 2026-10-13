@@ -1,0 +1,54 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "id": null,
+  "title": "AI Empire — Skills",
+  "tags": ["ai-empire", "skills"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Skill Executions",
+      "id": 1,
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "sum by (skill) (rate(empire_skill_executions_total[1m]))",
+          "legendFormat": "{{skill}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Skill Success Rate",
+      "id": 2,
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "sum by (skill) (rate(empire_skill_executions_total{status=\"success\"}[5m])) / sum by (skill) (rate(empire_skill_executions_total[5m]))",
+          "legendFormat": "{{skill}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Most Used Tools (24h)",
+      "id": 3,
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "topk(20, sum by (skill, tool) (increase(empire_skill_executions_total[24h])))",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

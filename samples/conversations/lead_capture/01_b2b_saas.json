@@ -1,0 +1,54 @@
+{
+  "session_id": "00000000-0000-0000-0000-aaaaaaaaaaaa",
+  "tenant_id": "00000000-0000-0000-0000-000000000001",
+  "user_id": "00000000-0000-0000-0000-000000000002",
+  "title": "Lead capture - SaaS B2B",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Quero conversar com o time de vendas da Acme"
+    },
+    {
+      "role": "assistant",
+      "content": "Ótimo! Para te conectar com o vendedor certo, pode me dizer:\n1. Qual o tamanho da sua empresa?\n2. Qual seu cargo?\n3. Qual o desafio principal que você quer resolver?",
+      "tool_calls": []
+    },
+    {
+      "role": "user",
+      "content": "Somos 200 pessoas, sou CTO, e quero implementar um AI agent interno"
+    },
+    {
+      "role": "assistant",
+      "content": "Perfeito! Para nosso plano Enterprise (que cobre 200+ colaboradores), vou agendar uma demo com nosso time técnico.",
+      "tool_calls": [
+        {
+          "id": "call-001",
+          "name": "create_lead",
+          "arguments": {
+            "email": "[email protected]",
+            "company": "Acme Corp",
+            "size": "200",
+            "role": "CTO",
+            "interest": "AI agent interno",
+            "tier": "enterprise",
+            "source": "chat"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call-001",
+      "content": "{\"lead_id\": \"L-12345\", \"status\": \"qualified\"}"
+    },
+    {
+      "role": "assistant",
+      "content": "Pronto! Lead L-12345 criado e classificado como Enterprise. Nosso time vai te contatar em até 4h úteis. Obrigado!"
+    }
+  ],
+  "metadata": {
+    "outcome": "qualified_lead",
+    "lead_id": "L-12345",
+    "tier": "enterprise"
+  }
+}

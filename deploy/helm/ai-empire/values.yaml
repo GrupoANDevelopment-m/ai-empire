@@ -1,0 +1,257 @@
+# AI Empire Helm Chart — Default values
+image:
+  registry: ghcr.io
+  repository: grupoandevelopment-m/ai-empire
+  tag: "4.0.0"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+replicaCount: 3
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  fsGroup: 2000
+  runAsNonRoot: true
+  runAsUser: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: empire.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: empire-tls
+      hosts:
+        - empire.example.com
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+    ephemeral-storage: 10Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+    ephemeral-storage: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+pdb:
+  enabled: true
+  minAvailable: 1
+  maxUnavailable: null
+
+postgresql:
+  enabled: true
+  auth:
+    username: empire
+    password: change-me
+    database: empire
+  primary:
+    persistence:
+      size: 50Gi
+      storageClass: gp3
+    resources:
+      limits:
+        cpu: 4000m
+        memory: 8Gi
+      requests:
+        cpu: 500m
+        memory: 2Gi
+  readReplicas:
+    replicaCount: 2
+    persistence:
+      size: 50Gi
+      storageClass: gp3
+
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    password: change-me
+  master:
+    persistence:
+      size: 10Gi
+  replica:
+    replicaCount: 2
+
+grafana:
+  enabled: true
+  adminPassword: change-me
+  persistence:
+    enabled: true
+    size: 10Gi
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: true
+    datasources:
+      enabled: true
+
+observability:
+  prometheus:
+    enabled: true
+    retention: 30d
+    storage: 50Gi
+  loki:
+    enabled: true
+    retention: 30d
+    storage: 30Gi
+  tempo:
+    enabled: true
+    retention: 30d
+    storage: 30Gi
+
+# LLM providers
+llm:
+  ollama:
+    enabled: false
+    model: qwen2.5:7b
+  nvidia_nim:
+    enabled: true
+    apiKey: ""  # use secrets
+    model: nvidia/nemotron-3-ultra-550b-a55b
+  openai:
+    enabled: false
+    apiKey: ""  # use secrets
+  anthropic:
+    enabled: false
+    apiKey: ""  # use secrets
+
+# MuAPI (media generation)
+muapi:
+  enabled: true
+  apiKey: ""  # use secrets
+
+# Browser automation
+browser:
+  enabled: true
+  profileStorage: 5Gi
+  chromiumImage: mcr.microsoft.com/playwright:v1.63.0-jammy
+
+# Sandbox
+sandbox:
+  defaultProfile: standard
+  cpuLimit: 30
+  memoryLimit: 256Mi
+  timeoutSeconds: 30
+
+# Security
+security:
+  rateLimit:
+    perMinute: 60
+    burst: 100
+  pii:
+    enabled: true
+    redactionStrategy: mask
+    patterns:
+      - cpf
+      - cnpj
+      - email
+      - phone
+      - credit_card
+  cors:
+    allowedOrigins:
+      - "https://empire.example.com"
+  audit:
+    enabled: true
+    appendOnly: true
+    retentionDays: 365
+
+# Tenants (multi-tenancy)
+tenants:
+  defaultQuota:
+    maxSkills: 10
+    maxTools: 100
+    maxFiles: 100
+    maxFileSize: 10Gi
+    apiCallsPerMinute: 100
+
+# Backup
+backup:
+  enabled: true
+  schedule: "0 2 * * *"
+  retention: 30
+  storage: 100Gi
+  s3:
+    bucket: empire-backups
+    region: us-east-1
+
+# Self-healing
+selfHealing:
+  enabled: true
+  checkInterval: 30
+  maxRestarts: 5
+
+# Self-learning
+selfLearning:
+  enabled: true
+  feedbackRetention: 90
+
+# Failover
+failover:
+  enabled: true
+  healthCheckInterval: 10
+  primary: api-us-east-1
+  secondaries:
+    - api-eu-west-1
+    - api-ap-southeast-1
+
+# Network policy
+networkPolicy:
+  enabled: true
+  ingressNamespaceSelector:
+    matchLabels:
+      name: ingress
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+
+# Service monitor
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s

@@ -1,0 +1,39 @@
+{
+  "description": "Sample customer data with churn signals",
+  "version": "1.0.0",
+  "rows": [
+    {
+      "customer_id": "C-001",
+      "company": "Acme Corp",
+      "plan": "enterprise",
+      "mrr": 5000,
+      "months_active": 18,
+      "usage_trend": "declining",
+      "support_tickets_30d": 8,
+      "nps_score": 4,
+      "churn_probability": 0.73
+    },
+    {
+      "customer_id": "C-002",
+      "company": "Globex",
+      "plan": "pro",
+      "mrr": 500,
+      "months_active": 6,
+      "usage_trend": "stable",
+      "support_tickets_30d": 1,
+      "nps_score": 9,
+      "churn_probability": 0.05
+    },
+    {
+      "customer_id": "C-003",
+      "company": "Initech",
+      "plan": "starter",
+      "mrr": 50,
+      "months_active": 2,
+      "usage_trend": "growing",
+      "support_tickets_30d": 0,
+      "nps_score": 10,
+      "churn_probability": 0.02
+    }
+  ]
+}

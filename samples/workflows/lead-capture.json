@@ -1,0 +1,74 @@
+{
+  "name": "lead_capture",
+  "description": "Capture and qualify leads from chat",
+  "version": "1.0.0",
+  "trigger": "user.messages.new",
+  "steps": [
+    {
+      "id": "extract_info",
+      "type": "llm",
+      "config": {
+        "prompt": "Extract from the user message: email, company, size, role, interest",
+        "model": "nvidia/nemotron-3-ultra-550b-a55b"
+      }
+    },
+    {
+      "id": "classify",
+      "type": "llm",
+      "config": {
+        "prompt": "Classify the lead as: cold, warm, hot, qualified",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "tier": {"type": "string", "enum": ["cold", "warm", "hot", "qualified"]}
+          }
+        }
+      }
+    },
+    {
+      "id": "branch",
+      "type": "switch",
+      "config": {
+        "on": "{{classify.tier}}",
+        "cases": {
+          "qualified": "schedule_call",
+          "hot": "send_email_hot",
+          "warm": "send_email_warm",
+          "cold": "save_to_nurture"
+        }
+      }
+    },
+    {
+      "id": "schedule_call",
+      "type": "tool",
+      "config": {
+        "tool": "calendar.book",
+        "params": {"duration_minutes": 30}
+      }
+    },
+    {
+      "id": "send_email_hot",
+      "type": "tool",
+      "config": {
+        "tool": "email.send",
+        "params": {"template": "hot_lead_response"}
+      }
+    },
+    {
+      "id": "send_email_warm",
+      "type": "tool",
+      "config": {
+        "tool": "email.send",
+        "params": {"template": "warm_lead_response"}
+      }
+    },
+    {
+      "id": "save_to_nurture",
+      "type": "tool",
+      "config": {
+        "tool": "crm.upsert_lead",
+        "params": {"status": "nurture"}
+      }
+    }
+  ]
+}

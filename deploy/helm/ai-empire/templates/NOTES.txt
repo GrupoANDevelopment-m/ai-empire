@@ -1,0 +1,18 @@
+AI Empire has been deployed!
+
+Release: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+To access the application:
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  https://{{ .host }}{{ (index .paths 0).path }}
+{{- end }}
+{{- else }}
+  kubectl port-forward svc/{{ include "ai-empire.fullname" . }} 8080:80
+  open http://localhost:8080
+{{- end }}
+
+To check the status:
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "ai-empire.name" . }}
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "ai-empire.name" . }} -f

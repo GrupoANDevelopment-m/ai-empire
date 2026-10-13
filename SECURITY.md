@@ -1,86 +1,75 @@
 # Security Policy
 
 ## Supported Versions
-
 | Version | Supported          |
 |---------|--------------------|
-| 3.4.x   | :white_check_mark: |
-| 3.3.x   | :white_check_mark: |
-| 3.2.x   | :x:                |
-| < 3.2   | :x:                |
+| 4.0.x   | ✅ Active          |
+| 3.x.x   | ⚠️ Critical fixes only |
+| < 3.0   | ❌ End of life      |
 
 ## Reporting a Vulnerability
 
-We take security seriously. Report vulnerabilities to:
+**DO NOT** open a public GitHub issue for security vulnerabilities.
 
-**security@ai-empire.example.com** (PGP key below)
-
-Please **DO NOT** open a public GitHub issue for security vulnerabilities.
-
-### What to include
-
+Email: **security@grupoan.dev** with:
 - Description of the vulnerability
 - Steps to reproduce
-- Impact assessment (what data/systems affected)
-- Affected versions
-- Your name/handle for credit (optional)
+- Impact assessment
 
-### Response SLA
-
-| Stage | Time |
-|-------|------|
-| Acknowledgement | 24 hours |
-| Initial triage | 7 days |
-| Patch in main | 30 days |
-| Public disclosure | 90 days (or when fix is deployed) |
+We aim to respond within 48 hours.
 
 ## Security Features
 
-### Built-in
+### Defense in Depth (3 Gates)
+- **Gate 0**: Auth (JWT), RBAC, Rate limit
+- **Gate 1**: PII redaction, Input validation
+- **Gate 2**: Sandbox (AST + RLIMIT), Audit log, Tenant isolation
 
-- **JWT authentication** (HS256, ≥32 byte secret enforced)
-- **RBAC** with 3 roles (admin, operator, viewer)
-- **Tenant isolation** via ContextVar
-- **Rate limiting** (Redis token bucket, 60/min default)
-- **PII auto-redaction** (9 patterns: email, CPF, credit card, etc)
-- **Append-only audit log** with PII redaction
-- **Sandbox for untrusted code** (AST + RLIMIT + SSRF protection)
-- **Input validation** (max message length, max page size, max file size)
-- **CORS restricted** (configurable via env var in prod)
+### PII Detection
+- 12 patterns including PT-BR (CPF, CNPJ, RG, CEP, phone_br)
+- Microsoft Presidio with spaCy NER
+- Custom recognizers for tokens, keys
 
-### Operational
+### Rate Limiting
+- Redis-backed token bucket with Lua atomicity
+- 5/min for login (per IP)
+- 60/min for general (per token+IP)
+- Exempts: /health, /docs
 
-- **OWASP ZAP pen-test** on every CI build
-- **Auto-update** with backup + rollback
-- **Multi-region failover** via Route 53
-- **Daily backups** to S3 (cross-region, versioned)
-- **CloudWatch alarms** for instance health
-- **Encrypted at rest** (EBS, RDS, S3)
-- **TLS 1.3 only** on ALB
-- **IMDSv2 required** (no metadata theft)
+### Sandbox
+- AST validation (blocks subprocess, ctypes, pickle, fork, etc.)
+- Unix RLIMIT (CPU, memory, file size)
+- SSRF protection (URL allowlist)
+- Per-tenant profile isolation for browser
 
-## Security Audits
+### Audit
+- Append-only (DB trigger prevents UPDATE/DELETE)
+- 365-day retention default
+- PII redacted before logging
 
-| Year | Auditor | Report |
-|------|---------|--------|
-| 2026-Q1 | (planned) External firm | TBD |
-| 2025-Q4 | Internal | docs/audits/2025-q4.md |
+### Compliance
+- OWASP ZAP pen-test in CI
+- 23/23 audit checks passed
+- Multi-region fail-over
+- Image digest pinning (SHA256)
 
-## Hall of Fame
+## Best Practices for Deployers
 
-Researchers who reported valid vulnerabilities:
-- *(no entries yet)*
+1. **Always set JWT_SECRET to 32+ random bytes**
+   ```bash
+   openssl rand -hex 32
+   ```
 
-## PGP Key
+2. **Use HTTPS in production** (TLS 1.3+)
 
-```
------BEGIN PGP PUBLIC KEY BLOCK-----
-[Will be filled in before public release]
------END PGP PUBLIC KEY BLOCK-----
-```
+3. **Enable rate limiting at the LB level** in addition to app
 
-## References
+4. **Back up audit logs** — they are append-only
 
-- `docs/PEN_TEST.md` — pen-test process
-- `docs/SECURITY_MODEL.md` — threat model
-- `runbooks/incident-response.md` — incident handling
+5. **Rotate API keys** quarterly
+
+6. **Use a WAF** (Cloudflare, AWS WAF) in front
+
+7. **Enable network policies** in K8s
+
+8. **Don't run as root** — pods run as user 1000

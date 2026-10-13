@@ -1,0 +1,57 @@
+# MCP Server Registry
+servers:
+  - name: stripe
+    description: Stripe payment processing
+    path: mcps/servers/stripe
+    required_env:
+      - STRIPE_API_KEY
+    tools: 5
+    
+  - name: github
+    description: GitHub REST API
+    path: mcps/servers/github
+    required_env:
+      - GITHUB_TOKEN
+    tools: 5
+    
+  - name: filesystem
+    description: Local file system access (sandboxed)
+    path: mcps/servers/filesystem
+    required_env:
+      - FS_ALLOWED_PATHS
+    tools: 4
+    
+  - name: postgres
+    description: PostgreSQL database access
+    path: mcps/servers/postgres
+    required_env:
+      - DATABASE_URL
+    tools: 3
+    
+  - name: slack
+    description: Slack messaging
+    path: mcps/servers/slack
+    required_env:
+      - SLACK_TOKEN
+    tools: 3
+    
+  - name: google_maps
+    description: Google Maps geocoding/directions
+    path: mcps/servers/google_maps
+    required_env:
+      - GOOGLE_MAPS_API_KEY
+    tools: 4
+    
+  - name: notion
+    description: Notion workspace
+    path: mcps/servers/notion
+    required_env:
+      - NOTION_TOKEN
+    tools: 3
+    
+  - name: hubspot
+    description: HubSpot CRM
+    path: mcps/servers/hubspot
+    required_env:
+      - HUBSPOT_TOKEN
+    tools: 3
