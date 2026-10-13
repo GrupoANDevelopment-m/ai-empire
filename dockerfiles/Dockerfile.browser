@@ -1,0 +1,30 @@
+# AI Empire — Browser-automation sidecar with Chromium
+FROM mcr.microsoft.com/playwright:v1.63.0-jammy
+
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip tini curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python deps for browser profile management
+RUN pip3 install --no-cache-dir fastapi uvicorn httpx pydantic pyyaml
+
+# Profile storage
+RUN mkdir -p /app/profiles && chown -R pwuser:pwuser /app/profiles
+VOLUME ["/app/profiles"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:9090/health || exit 1
+
+USER pwuser
+WORKDIR /app
+
+EXPOSE 9090
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["python3", "/app/browser_server.py"]
+
+LABEL org.opencontainers.image.title="ai-empire-browser" \
+      org.opencontainers.image.version="4.0.0" \
+      org.opencontainers.image.vendor="Grupo AN Development" \
+      org.opencontainers.image.licenses="MIT"

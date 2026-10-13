@@ -1,0 +1,57 @@
+# AI Empire — seeder service
+# Multi-stage build for minimal attack surface
+FROM python:3.11-slim as builder
+
+# Build deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential gcc g++ libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Install Python deps first (cache layer)
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# Copy source
+COPY . /build/
+
+# Production stage
+FROM python:3.11-slim as production
+
+# Runtime deps only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 tini curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Security: non-root user
+RUN groupadd -g 1000 empire && \
+    useradd -m -u 1000 -g empire -s /bin/bash empire
+
+# Python from builder
+COPY --from=builder /root/.local /home/empire/.local
+ENV PATH=/home/empire/.local/bin:$PATH
+
+# Source
+WORKDIR /app
+COPY --from=builder --chown=empire:empire /build /app
+
+# Security hardening
+RUN chmod -R 555 /app && chmod -R 755 /app/data /app/cache 2>/dev/null
+USER empire
+
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Use tini for proper signal handling
+ENTRYPOINT ["/usr/bin/tini", "--"]
+
+# Default command per service
+CMD ["uvicorn", "web.server:app", "--host", "0.0.0.0", "--port", "8080"]
+
+# Metadata
+LABEL org.opencontainers.image.title="ai-empire-seeder" \
+      org.opencontainers.image.version="4.0.0" \
+      org.opencontainers.image.vendor="Grupo AN Development" \
+      org.opencontainers.image.licenses="MIT"
