@@ -1,0 +1,56 @@
+{
+  "name": "rss_to_newsletter",
+  "description": "Pull RSS feeds, summarize, send newsletter",
+  "version": "1.0.0",
+  "trigger": "schedule.daily",
+  "steps": [
+    {
+      "id": "fetch_rss",
+      "type": "tool",
+      "config": {
+        "tool": "web_search.fetch_rss"
+      }
+    },
+    {
+      "id": "dedupe",
+      "type": "tool",
+      "config": {
+        "tool": "data_analysis.deduplicate"
+      }
+    },
+    {
+      "id": "rank",
+      "type": "llm",
+      "config": {
+        "prompt": "Rank by relevance to user interests",
+        "output": "ranked"
+      }
+    },
+    {
+      "id": "summarize",
+      "type": "llm",
+      "config": {
+        "prompt": "Generate 3-sentence summary per article",
+        "output": "summaries"
+      }
+    },
+    {
+      "id": "compose",
+      "type": "llm",
+      "config": {
+        "prompt": "Compose newsletter HTML",
+        "output": "html"
+      }
+    },
+    {
+      "id": "send",
+      "type": "tool",
+      "config": {
+        "tool": "email.send_bulk",
+        "params": {
+          "html": true
+        }
+      }
+    }
+  ]
+}

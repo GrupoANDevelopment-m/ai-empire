@@ -1,0 +1,49 @@
+{
+  "name": "rag_query",
+  "description": "Retrieval-Augmented Generation over knowledge base",
+  "version": "1.0.0",
+  "trigger": "chat.message_received",
+  "steps": [
+    {
+      "id": "embed_query",
+      "type": "tool",
+      "config": {
+        "tool": "embeddings.create"
+      }
+    },
+    {
+      "id": "search",
+      "type": "tool",
+      "config": {
+        "tool": "vector.search",
+        "params": {
+          "top_k": 5
+        }
+      }
+    },
+    {
+      "id": "rerank",
+      "type": "llm",
+      "config": {
+        "prompt": "Rerank by relevance",
+        "output": "reranked"
+      }
+    },
+    {
+      "id": "generate",
+      "type": "llm",
+      "config": {
+        "prompt": "Answer the question using only the provided context",
+        "output": "answer"
+      }
+    },
+    {
+      "id": "cite",
+      "type": "llm",
+      "config": {
+        "prompt": "Add inline citations to sources",
+        "output": "cited"
+      }
+    }
+  ]
+}

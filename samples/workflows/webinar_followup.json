@@ -1,0 +1,69 @@
+{
+  "name": "webinar_followup",
+  "description": "After webinar, send personalized follow-up emails",
+  "version": "1.0.0",
+  "trigger": "webinar.ended",
+  "steps": [
+    {
+      "id": "fetch_attendees",
+      "type": "tool",
+      "config": {
+        "tool": "calendar.get_attendees"
+      }
+    },
+    {
+      "id": "analyze_engagement",
+      "type": "tool",
+      "config": {
+        "tool": "data_analysis.analyze",
+        "params": {
+          "source": "engagement_metrics"
+        }
+      }
+    },
+    {
+      "id": "personalize",
+      "type": "parallel",
+      "config": {
+        "branches": [
+          {
+            "id": "high_engagement",
+            "tool": "llm",
+            "params": {
+              "template": "follow_up_hot"
+            }
+          },
+          {
+            "id": "low_engagement",
+            "tool": "llm",
+            "params": {
+              "template": "follow_up_nurture"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "send",
+      "type": "parallel",
+      "config": {
+        "branches": [
+          {
+            "id": "send_hot",
+            "tool": "email.send",
+            "params": {
+              "template": "follow_up_hot"
+            }
+          },
+          {
+            "id": "send_nurture",
+            "tool": "email.send",
+            "params": {
+              "template": "follow_up_nurture"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

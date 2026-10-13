@@ -1,0 +1,72 @@
+{
+  "name": "monitoring_alert",
+  "description": "On alert, diagnose, notify, optionally fix",
+  "version": "1.0.0",
+  "trigger": "prometheus.alert.fired",
+  "steps": [
+    {
+      "id": "fetch_metrics",
+      "type": "tool",
+      "config": {
+        "tool": "prometheus.query",
+        "params": {
+          "alert": "{{alert.name}}"
+        }
+      }
+    },
+    {
+      "id": "fetch_logs",
+      "type": "tool",
+      "config": {
+        "tool": "loki.query",
+        "params": {
+          "service": "{{alert.service}}"
+        }
+      }
+    },
+    {
+      "id": "diagnose",
+      "type": "llm",
+      "config": {
+        "prompt": "Diagnose the issue based on metrics and logs",
+        "output": "diagnosis"
+      }
+    },
+    {
+      "id": "decide",
+      "type": "switch",
+      "config": {
+        "on": "diagnosis.severity",
+        "cases": {
+          "critical": "page_oncall",
+          "warning": "notify_slack",
+          "info": "log_only"
+        }
+      }
+    },
+    {
+      "id": "page_oncall",
+      "type": "tool",
+      "config": {
+        "tool": "pagerduty.page"
+      }
+    },
+    {
+      "id": "notify_slack",
+      "type": "tool",
+      "config": {
+        "tool": "slack.post_message",
+        "params": {
+          "channel": "#alerts"
+        }
+      }
+    },
+    {
+      "id": "log_only",
+      "type": "tool",
+      "config": {
+        "tool": "audit.log"
+      }
+    }
+  ]
+}

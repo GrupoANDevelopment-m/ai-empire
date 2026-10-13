@@ -1,0 +1,73 @@
+{
+  "name": "lead_to_meeting",
+  "description": "Qualify lead, send email, book meeting",
+  "version": "1.0.0",
+  "trigger": "chat.message_received",
+  "steps": [
+    {
+      "id": "extract",
+      "type": "llm",
+      "config": {
+        "prompt": "Extract: email, company, interest",
+        "output": "extracted"
+      }
+    },
+    {
+      "id": "qualify",
+      "type": "llm",
+      "config": {
+        "prompt": "Qualify the lead as hot/warm/cold",
+        "output": "score"
+      }
+    },
+    {
+      "id": "branch",
+      "type": "switch",
+      "config": {
+        "on": "score",
+        "cases": {
+          "hot": "send_hot",
+          "warm": "send_warm",
+          "cold": "nurture"
+        }
+      }
+    },
+    {
+      "id": "send_hot",
+      "type": "tool",
+      "config": {
+        "tool": "email.send",
+        "params": {
+          "template": "hot_lead"
+        }
+      }
+    },
+    {
+      "id": "send_warm",
+      "type": "tool",
+      "config": {
+        "tool": "email.send",
+        "params": {
+          "template": "warm_lead"
+        }
+      }
+    },
+    {
+      "id": "nurture",
+      "type": "tool",
+      "config": {
+        "tool": "crm.add_to_nurture"
+      }
+    },
+    {
+      "id": "book",
+      "type": "tool",
+      "config": {
+        "tool": "calendar.book_meeting",
+        "params": {
+          "duration": 30
+        }
+      }
+    }
+  ]
+}

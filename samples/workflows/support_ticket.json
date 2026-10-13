@@ -1,0 +1,53 @@
+{
+  "name": "support_ticket",
+  "description": "Classify and route support ticket",
+  "version": "1.0.0",
+  "trigger": "email.received",
+  "steps": [
+    {
+      "id": "classify",
+      "type": "llm",
+      "config": {
+        "prompt": "Classify the ticket",
+        "output": "category"
+      }
+    },
+    {
+      "id": "extract_entities",
+      "type": "llm",
+      "config": {
+        "prompt": "Extract: order_id, customer_email, product",
+        "output": "entities"
+      }
+    },
+    {
+      "id": "search_kb",
+      "type": "tool",
+      "config": {
+        "tool": "knowledge.search",
+        "params": {
+          "query": "{{category}}"
+        }
+      }
+    },
+    {
+      "id": "draft_reply",
+      "type": "llm",
+      "config": {
+        "prompt": "Draft a reply using KB articles",
+        "output": "reply"
+      }
+    },
+    {
+      "id": "assign",
+      "type": "tool",
+      "config": {
+        "tool": "crm.create_ticket",
+        "params": {
+          "category": "{{category}}",
+          "entities": "{{entities}}"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "name": "content_to_social",
+  "description": "Generate content and publish to all channels",
+  "version": "1.0.0",
+  "trigger": "user.requested",
+  "steps": [
+    {
+      "id": "generate_image",
+      "type": "parallel",
+      "config": {
+        "branches": [
+          {
+            "id": "img_1_1",
+            "tool": "muapi.generate_image",
+            "params": {
+              "aspect_ratio": "1:1"
+            }
+          },
+          {
+            "id": "img_16_9",
+            "tool": "muapi.generate_image",
+            "params": {
+              "aspect_ratio": "16:9"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "rewrite",
+      "type": "parallel",
+      "config": {
+        "branches": [
+          {
+            "id": "linkedin",
+            "prompt": "Rewrite for LinkedIn"
+          },
+          {
+            "id": "twitter",
+            "prompt": "Rewrite as Twitter thread"
+          },
+          {
+            "id": "instagram",
+            "prompt": "Rewrite for Instagram with hashtags"
+          }
+        ]
+      }
+    },
+    {
+      "id": "publish",
+      "type": "parallel",
+      "config": {
+        "branches": [
+          {
+            "id": "post_li",
+            "tool": "social_media.post_linkedin"
+          },
+          {
+            "id": "post_tw",
+            "tool": "social_media.post_twitter"
+          },
+          {
+            "id": "post_ig",
+            "tool": "social_media.post_instagram"
+          }
+        ]
+      }
+    }
+  ]
+}

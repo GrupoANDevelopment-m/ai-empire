@@ -1,0 +1,88 @@
+{
+  "name": "self_heal",
+  "description": "Detect failure, diagnose, fix, verify",
+  "version": "1.0.0",
+  "trigger": "healthcheck.failed",
+  "steps": [
+    {
+      "id": "fetch_state",
+      "type": "tool",
+      "config": {
+        "tool": "system.get_state"
+      }
+    },
+    {
+      "id": "fetch_logs",
+      "type": "tool",
+      "config": {
+        "tool": "loki.query"
+      }
+    },
+    {
+      "id": "diagnose",
+      "type": "llm",
+      "config": {
+        "prompt": "Root cause analysis",
+        "output": "rca"
+      }
+    },
+    {
+      "id": "decide_action",
+      "type": "switch",
+      "config": {
+        "on": "rca.action",
+        "cases": {
+          "restart": "restart_service",
+          "rollback": "rollback_deploy",
+          "scale": "scale_up",
+          "config_change": "update_config"
+        }
+      }
+    },
+    {
+      "id": "restart_service",
+      "type": "tool",
+      "config": {
+        "tool": "k8s.restart"
+      }
+    },
+    {
+      "id": "rollback_deploy",
+      "type": "tool",
+      "config": {
+        "tool": "k8s.rollback"
+      }
+    },
+    {
+      "id": "scale_up",
+      "type": "tool",
+      "config": {
+        "tool": "k8s.scale"
+      }
+    },
+    {
+      "id": "update_config",
+      "type": "tool",
+      "config": {
+        "tool": "configmap.update"
+      }
+    },
+    {
+      "id": "verify",
+      "type": "tool",
+      "config": {
+        "tool": "healthcheck.run"
+      }
+    },
+    {
+      "id": "notify",
+      "type": "tool",
+      "config": {
+        "tool": "slack.post_message",
+        "params": {
+          "channel": "#ops"
+        }
+      }
+    }
+  ]
+}

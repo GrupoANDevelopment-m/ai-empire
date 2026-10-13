@@ -1,0 +1,76 @@
+{
+  "name": "image_social_pack",
+  "description": "One product image \u2192 social media pack",
+  "version": "1.0.0",
+  "trigger": "user.uploaded_image",
+  "steps": [
+    {
+      "id": "upscale",
+      "type": "tool",
+      "config": {
+        "tool": "muapi.upscale_image"
+      }
+    },
+    {
+      "id": "variants",
+      "type": "parallel",
+      "config": {
+        "branches": [
+          {
+            "id": "remove_bg",
+            "tool": "muapi.remove_background"
+          },
+          {
+            "id": "expand",
+            "tool": "muapi.expand_image",
+            "params": {
+              "target_aspect": "16:9"
+            }
+          },
+          {
+            "id": "decompose",
+            "tool": "muapi.decompose_layers"
+          }
+        ]
+      }
+    },
+    {
+      "id": "marketing_ads",
+      "type": "parallel",
+      "config": {
+        "branches": [
+          {
+            "id": "ad_story",
+            "tool": "muapi.marketing_ad",
+            "params": {
+              "format": "9:16"
+            }
+          },
+          {
+            "id": "ad_feed",
+            "tool": "muapi.marketing_ad",
+            "params": {
+              "format": "1:1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "post",
+      "type": "parallel",
+      "config": {
+        "branches": [
+          {
+            "id": "ig_post",
+            "tool": "social_media.post_instagram"
+          },
+          {
+            "id": "fb_post",
+            "tool": "social_media.post_facebook"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "name": "code_review",
+  "description": "Automated code review on PR",
+  "version": "1.0.0",
+  "trigger": "github.pull_request.opened",
+  "steps": [
+    {
+      "id": "fetch_diff",
+      "type": "tool",
+      "config": {
+        "tool": "github.get_pull_request_diff"
+      }
+    },
+    {
+      "id": "analyze",
+      "type": "llm",
+      "config": {
+        "prompt": "Review the code: style, bugs, security, performance",
+        "output": "review"
+      }
+    },
+    {
+      "id": "severity",
+      "type": "llm",
+      "config": {
+        "prompt": "Rate the severity of each issue",
+        "output": "severity"
+      }
+    },
+    {
+      "id": "block_high",
+      "type": "switch",
+      "config": {
+        "on": "severity.has_blocking",
+        "cases": {
+          "true": "request_changes",
+          "false": "comment"
+        }
+      }
+    },
+    {
+      "id": "request_changes",
+      "type": "tool",
+      "config": {
+        "tool": "github.create_review",
+        "params": {
+          "event": "REQUEST_CHANGES"
+        }
+      }
+    },
+    {
+      "id": "comment",
+      "type": "tool",
+      "config": {
+        "tool": "github.create_review",
+        "params": {
+          "event": "COMMENT"
+        }
+      }
+    }
+  ]
+}

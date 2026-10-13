@@ -1,0 +1,61 @@
+{
+  "name": "data_pipeline",
+  "description": "CSV \u2192 analyze \u2192 visualize \u2192 report",
+  "version": "1.0.0",
+  "trigger": "file.uploaded",
+  "steps": [
+    {
+      "id": "load",
+      "type": "tool",
+      "config": {
+        "tool": "data_analysis.load_csv"
+      }
+    },
+    {
+      "id": "describe",
+      "type": "tool",
+      "config": {
+        "tool": "data_analysis.describe"
+      }
+    },
+    {
+      "id": "correlation",
+      "type": "tool",
+      "config": {
+        "tool": "data_analysis.correlation"
+      }
+    },
+    {
+      "id": "anomalies",
+      "type": "tool",
+      "config": {
+        "tool": "data_analysis.detect_outliers"
+      }
+    },
+    {
+      "id": "summary",
+      "type": "llm",
+      "config": {
+        "prompt": "Summarize the analysis",
+        "output": "summary"
+      }
+    },
+    {
+      "id": "chart",
+      "type": "tool",
+      "config": {
+        "tool": "data_analysis.plot"
+      }
+    },
+    {
+      "id": "report",
+      "type": "tool",
+      "config": {
+        "tool": "pdf.create_pdf",
+        "params": {
+          "template": "data_report"
+        }
+      }
+    }
+  ]
+}

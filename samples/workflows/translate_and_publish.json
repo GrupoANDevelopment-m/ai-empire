@@ -1,0 +1,80 @@
+{
+  "name": "translate_and_publish",
+  "description": "Translate content to N languages and publish",
+  "version": "1.0.0",
+  "trigger": "user.requested",
+  "steps": [
+    {
+      "id": "extract_text",
+      "type": "tool",
+      "config": {
+        "tool": "pdf.extract_text"
+      }
+    },
+    {
+      "id": "translate",
+      "type": "parallel",
+      "config": {
+        "branches": [
+          {
+            "id": "es",
+            "tool": "translation.translate",
+            "params": {
+              "target": "es"
+            }
+          },
+          {
+            "id": "fr",
+            "tool": "translation.translate",
+            "params": {
+              "target": "fr"
+            }
+          },
+          {
+            "id": "de",
+            "tool": "translation.translate",
+            "params": {
+              "target": "de"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "create_pdfs",
+      "type": "parallel",
+      "config": {
+        "branches": [
+          {
+            "id": "pdf_es",
+            "tool": "pdf.create_pdf",
+            "params": {
+              "language": "es"
+            }
+          },
+          {
+            "id": "pdf_fr",
+            "tool": "pdf.create_pdf",
+            "params": {
+              "language": "fr"
+            }
+          },
+          {
+            "id": "pdf_de",
+            "tool": "pdf.create_pdf",
+            "params": {
+              "language": "de"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "upload",
+      "type": "tool",
+      "config": {
+        "tool": "storage.upload_files"
+      }
+    }
+  ]
+}
