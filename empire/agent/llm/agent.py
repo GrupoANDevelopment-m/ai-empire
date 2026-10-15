@@ -73,7 +73,12 @@ class EmpireAgent:
     def __init__(self, llm: LLMClient | None = None, tenant: str = "default"):
         self.llm = llm or LLMClient()
         self.tenant = tenant  # default tenant for all sessions in this agent
-        self.tools = tool_definitions()
+        # Load ALL tools from ALL installed skills dynamically
+        # (browser-automation, muapi-studio, saas-b2b, email, calendar,
+        #  crm, social-media, data-analysis, code-execution, web-search,
+        #  pdf, translation, summarization)
+        from .dynamic_tools import all_tool_definitions
+        self.tools = all_tool_definitions()
         self.sessions: dict[str, list[Message]] = {}
         # Set the tenant context on init (ContextVar) so tools can read it
         from .tenant import set_current_tenant
@@ -161,7 +166,9 @@ class EmpireAgent:
                 except json.JSONDecodeError:
                     fn_args = {}
                 log.info(f"Tool call: {fn_name}({fn_args})")
-                result = await execute_tool(fn_name, fn_args)
+                # Try dynamic executor first (loads from all 13 skills)
+                from .dynamic_tools import execute_skill_tool
+                result = await execute_skill_tool(fn_name, fn_args)
                 all_tool_calls.append({
                     "tool": fn_name,
                     "arguments": fn_args,

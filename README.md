@@ -236,7 +236,7 @@ vendor/
 
 We don't use these as black-box pip packages — we **integrate** them
 into AI Empire's code. The source is right here for reference,
-customization, and offline operation.
+customization, and customization.
 
 ## Vendored Dependencies
 
@@ -313,4 +313,4 @@ vendor/
 
 We don't use these as black-box pip packages — we **integrate** them
 into AI Empire's code. The source is right here for reference,
-customization, and offline operation.
+customization, and customization.
