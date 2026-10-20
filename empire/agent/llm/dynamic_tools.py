@@ -73,6 +73,24 @@ def _func_to_tool_def(fn: Callable, skill_name: str, tool_filename: str) -> dict
             },
         }
     
+    # Detect **kwargs — the tool accepts arbitrary parameters
+    has_var_kw = any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+    )
+    if has_var_kw:
+        return {
+            "type": "function",
+            "function": {
+                "name": fn.__name__,
+                "description": summary or f"Tool {fn.__name__} from {skill_name}",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": True,
+                },
+            },
+        }
+    
     # Pattern A: standard function with typed parameters
     properties = {}
     required = []
@@ -311,12 +329,21 @@ async def execute_skill_tool(name: str, arguments: dict) -> str:
                         else:
                             result = func(arguments)
                     else:
-                        # Pattern A — filter to known params
-                        valid_params = {
-                            p for p in sig.parameters
-                            if p != "self" and p in arguments
-                        }
-                        call_args = {k: arguments[k] for k in valid_params}
+                        # Detect **kwargs (VAR_KEYWORD) — pass everything through
+                        has_var_kw = any(
+                            p.kind == inspect.Parameter.VAR_KEYWORD
+                            for p in params
+                        )
+                        if has_var_kw:
+                            # Function accepts arbitrary kwargs — pass all arguments
+                            call_args = dict(arguments)
+                        else:
+                            # Filter to known params only
+                            call_args = {
+                                p: arguments[p]
+                                for p in sig.parameters
+                                if p != "self" and p in arguments
+                            }
                         if inspect.iscoroutinefunction(func):
                             result = await func(**call_args)
                         else:

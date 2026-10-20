@@ -1,7 +1,14 @@
 """send_bulk — send bulk emails with personalization."""
 import asyncio
 from typing import Optional
-from .send_email import send_email
+import importlib, os
+# Load sibling tool module by path (skills load files, not packages)
+_here = os.path.dirname(os.path.abspath(__file__))
+_spec = importlib.util.spec_from_file_location(
+    "skill_email_send_email", os.path.join(_here, "send_email.py"))
+_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+send_email = _mod.send_email
 
 
 async def send_bulk(
