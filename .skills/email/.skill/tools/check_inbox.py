@@ -33,6 +33,17 @@ async def check_inbox(
     imap_user = imap_user or os.getenv("IMAP_USER", "")
     imap_password = imap_password or os.getenv("IMAP_PASSWORD", "")
 
+    # Fail fast with a clear message instead of dialling the IMAP server and
+    # dying on a socket error.
+    missing = [n for n, v in (("IMAP_USER", imap_user),
+                              ("IMAP_PASSWORD", imap_password)) if not v]
+    if missing:
+        raise RuntimeError(
+            "Email not configured — set " + ", ".join(missing) +
+            f" in .env (IMAP_HOST defaults to {imap_host}). "
+            "Use a Gmail app password if 2FA is enabled."
+        )
+
     def _fetch():
         with imaplib.IMAP4_SSL(imap_host) as imap:
             imap.login(imap_user, imap_password)

@@ -1,0 +1,6 @@
+{
+  "id": "follow_up",
+  "subject": "{{name}}, retomamos a conversa?",
+  "body": "Olá {{name}},\n\nPassando para saber se ainda faz sentido conversarmos sobre {{topic}}.\n\nSe preferir, me dá um horário esta semana que eu te mando o convite.\n\nAbraço,\n{{sender}}",
+  "required_vars": ["name"]
+}

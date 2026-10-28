@@ -104,3 +104,18 @@ docs/screenshots/
 data/cache/
 *.bin
 *.wasm
+
+# --- tool harness / test artifacts ---
+# (the audit harness itself is committed: tools_audit.py, tools_execute.py,
+#  tools_fake_success.py — they are the verification tooling for this repo)
+/harness_state.json
+/data/harness_fixtures/
+/Document.pdf
+/Harness.pdf
+/merged.pdf
+/chart_*.png
+/sample_*.pdf
+/pdf_pages/
+/split/
+/pdf_images/
+*.ics

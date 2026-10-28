@@ -1,0 +1,6 @@
+{
+  "id": "welcome",
+  "subject": "Bem-vindo(a), {{name}}!",
+  "body": "Olá {{name}},\n\nSeja bem-vindo(a) à {{company}}!\n\nComece explorando o painel e configurando seus primeiros agentes.\n\nAbraço,\nEquipe {{company}}",
+  "required_vars": ["name"]
+}

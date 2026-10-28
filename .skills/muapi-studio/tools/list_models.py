@@ -1,6 +1,6 @@
 """List available models on MuAPI by mode (t2i, t2v, i2i, i2v, v2v, audio)."""
 import json
-from _http import request
+from _http import request, request_public
 
 
 def run(inputs):
@@ -19,49 +19,56 @@ def run(inputs):
     limit = inputs.get("limit")
     provider = inputs.get("provider")
 
-    # Open Generative AI exposes the catalog via its OpenAPI spec
-    # We fetch the live catalog so the skill stays in sync with new releases
-    # Falls back to a small built-in list if the live fetch fails
-    result = request("GET", "/openapi.json", timeout=15)
+    # The OpenAPI spec is a PUBLIC endpoint — fetching it must not require
+    # an account key, and a failed fetch must be reported, never smoothed
+    # over with an empty catalogue.
+    result = request_public("GET", "/openapi.json", timeout=25)
+    if not result.get("ok"):
+        return {"ok": False, "mode": mode, "count": 0, "models": [],
+                "error": result.get("error") or "could not fetch MuAPI OpenAPI spec",
+                "source": "live"}
 
     models = []
-    if result.get("ok"):
-        spec = result.get("data", {})
-        paths = spec.get("paths", {}) or {}
-        # Collect all model endpoints
-        for path, methods in paths.items():
-            if not path.startswith("/api/v1/"):
-                continue
-            if "post" not in methods:
-                continue
-            endpoint = path[len("/api/v1/"):]
-            post = methods["post"]
-            summary = post.get("summary", "")
-            tags = post.get("tags", [])
-            if endpoint in ("predictions", "upload-binary", "get_upload_url",
-                            "get_file_upload_url", "creative-agent"):
-                continue
-            models.append({
-                "endpoint": endpoint,
-                "summary": summary,
-                "tags": tags,
-            })
+    spec = result.get("data") or {}
+    paths = spec.get("paths", {}) or {}
+    # Collect all model endpoints
+    for path, methods in paths.items():
+        if not path.startswith("/api/v1/"):
+            continue
+        if "post" not in methods:
+            continue
+        endpoint = path[len("/api/v1/"):]
+        post = methods["post"]
+        summary = post.get("summary", "")
+        tags = post.get("tags", [])
+        if endpoint in ("predictions", "upload-binary", "get_upload_url",
+                        "get_file_upload_url", "creative-agent"):
+            continue
+        models.append({
+            "endpoint": endpoint,
+            "summary": summary,
+            "tags": tags,
+        })
 
-    # Apply filters
+    # Apply filters. The live spec uses tags such as
+    # "Image: Text-to-Image", "Video: Image-to-Video", "Image: Edit & Reference".
     if mode != "all":
-        # Heuristic categorization by tag
         tag_mode_map = {
-            "t2i": ["image-generation", "text-to-image"],
-            "i2i": ["image-to-image", "image-editing"],
-            "t2v": ["video-generation", "text-to-video"],
-            "i2v": ["image-to-video"],
-            "v2v": ["video-to-video"],
-            "audio": ["audio", "music", "speech", "lip-sync", "tts"],
+            "t2i": ["image: text-to-image"],
+            "i2i": ["image: edit & reference", "image: enhance", "image: edit"],
+            "t2v": ["video: text-to-video", "video: storyboard"],
+            "i2v": ["video: image-to-video", "video: avatars"],
+            "v2v": ["video: edit & effects"],
+            "audio": ["audio", "lipsync", "lip-sync", "tts", "speech"],
+            "3d": ["3d generation"],
+            "agent": ["creative agent", "agent embeds", "zapier", "make"],
+            "llm": ["llm / multimodal", "llm", "multimodal"],
         }
         target_tags = tag_mode_map.get(mode, [mode])
         filtered = []
         for m in models:
-            if any(t in target_tags for t in m["tags"]):
+            haystack = " ".join(str(t).lower() for t in m.get("tags", []))
+            if any(t in haystack for t in target_tags):
                 filtered.append(m)
         models = filtered
 
@@ -77,5 +84,6 @@ def run(inputs):
         "mode": mode,
         "count": len(models),
         "models": models,
+        "source": "live",
         "note": "fetched live from MuAPI OpenAPI spec — always current",
     }

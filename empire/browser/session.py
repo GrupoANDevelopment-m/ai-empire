@@ -1,10 +1,46 @@
 """Browser session manager with persistent user context (real Playwright)."""
-import os, time, asyncio
+import os, time, asyncio, threading
 from pathlib import Path
 from typing import Dict, Optional, Any, List
 from dataclasses import dataclass, field, asdict
 
 PROFILES_ROOT = Path(os.getenv("BROWSER_PROFILES_DIR", "/workspace/ai-empire/data/browser_profiles"))
+
+
+class _LoopThread:
+    """A dedicated event loop running in its own thread.
+
+    Playwright's async API binds to the event loop that started it. Running
+    every action on a short-lived loop (the previous behaviour) killed the
+    driver after the first action — the browser socket died with EPIPE.
+    One long-lived loop keeps the browser alive for the whole session.
+    """
+
+    def __init__(self):
+        self._loop = asyncio.new_event_loop()
+        self._ready = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run, name="empire-browser-loop", daemon=True)
+        self._thread.start()
+        self._ready.wait(timeout=10)
+
+    def _run(self):
+        asyncio.set_event_loop(self._loop)
+        self._loop.call_soon(self._ready.set)
+        self._loop.run_forever()
+
+    def run(self, coro, timeout: Optional[float] = None):
+        """Run a coroutine on the browser loop and wait for its result."""
+        if self._loop.is_closed():
+            raise RuntimeError("browser event loop is closed")
+        fut = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return fut.result(timeout=timeout)
+
+    def close(self):
+        try:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        except Exception:
+            pass
 
 
 @dataclass
@@ -30,6 +66,18 @@ class BrowserSessionManager:
         self._sessions: Dict[str, BrowserSession] = {}
         self._browsers: Dict[str, Any] = {}
         self._pages: Dict[str, Any] = {}
+        self._loop_thread: Optional[_LoopThread] = None
+
+    @property
+    def loop_thread(self) -> _LoopThread:
+        """The single event loop that owns every Playwright object."""
+        if self._loop_thread is None:
+            self._loop_thread = _LoopThread()
+        return self._loop_thread
+
+    def run(self, coro, timeout: Optional[float] = None):
+        """Run a coroutine on the browser's dedicated loop."""
+        return self.loop_thread.run(coro, timeout=timeout)
 
     def _ensure_playwright(self):
         if not hasattr(self, "_pw_instance"):
@@ -74,10 +122,21 @@ class BrowserSessionManager:
         if not s: return False
         try:
             page = self._pages.get(session_id)
-            if page: asyncio.create_task(page.close())
             ctx = self._browsers.get(session_id)
-            if ctx: asyncio.create_task(ctx.close())
-        except Exception: pass
+            if page or ctx:
+                async def _close():
+                    try:
+                        if page: await page.close()
+                    except Exception: pass
+                    try:
+                        if ctx: await ctx.close()
+                    except Exception: pass
+                # close on the loop that owns the Playwright objects
+                self.run(_close(), timeout=30)
+            self._pages.pop(session_id, None)
+            self._browsers.pop(session_id, None)
+        except Exception:
+            pass
         s.status = "closed"
         return True
 

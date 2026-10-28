@@ -8,10 +8,53 @@ import os
 import json
 import asyncio
 import logging
-import httpx
 from typing import Any
 
+try:
+    import httpx
+except ImportError:          # pragma: no cover - depends on install profile
+    httpx = None
+
 log = logging.getLogger("empire.llm")
+
+
+async def _http_get(url: str, headers: dict | None = None,
+                    timeout: float = 3.0) -> tuple[int, str]:
+    """GET returning (status, text). Uses httpx, else stdlib urllib."""
+    if httpx is not None:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.get(url, headers=headers or {})
+            return r.status_code, r.text
+    return await asyncio.get_event_loop().run_in_executor(
+        None, lambda: _urllib_request("GET", url, headers, None, timeout))
+
+
+async def _http_post(url: str, payload: dict, headers: dict | None = None,
+                     timeout: float = 300.0) -> tuple[int, str]:
+    """POST with JSON body returning (status, text)."""
+    if httpx is not None:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(url, json=payload, headers=headers or {})
+            return r.status_code, r.text
+    return await asyncio.get_event_loop().run_in_executor(
+        None, lambda: _urllib_request("POST", url, headers, payload, timeout))
+
+
+def _urllib_request(method: str, url: str, headers: dict | None,
+                    payload: dict | None, timeout: float) -> tuple[int, str]:
+    """Real HTTP via stdlib urllib — used when httpx is not installed."""
+    import urllib.request, urllib.error
+    h = dict(headers or {})
+    h.setdefault("Content-Type", "application/json")
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(url, data=data, headers=h, method=method.upper())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+    except Exception as e:
+        return 0, f"{type(e).__name__}: {e}"
 
 
 class LLMUnavailable(Exception):
@@ -55,10 +98,9 @@ class LLMClient:
 
         # 1. Ollama
         try:
-            async with httpx.AsyncClient(timeout=3) as client:
-                r = await client.get(f"{self.ollama_url}/api/tags")
-                if r.status_code == 200:
-                    tags = r.json().get("models", [])
+            st, body = await _http_get(f"{self.ollama_url}/api/tags", timeout=3)
+            if st == 200:
+                    tags = json.loads(body).get("models", [])
                     chosen = self.ollama_model
                     if not chosen:
                         preferred = ["qwen2.5", "qwen3", "llama3.1", "llama3.2", "mistral", "command-r"]
@@ -80,9 +122,8 @@ class LLMClient:
 
         # 2. LiteLLM proxy (OpenAI-compatible)
         try:
-            async with httpx.AsyncClient(timeout=3) as client:
-                r = await client.get(f"{self.litellm_url}/health/liveliness")
-                if r.status_code in (200, 204):
+            st, _lb = await _http_get(f"{self.litellm_url}/health/liveliness", timeout=3)
+            if st in (200, 204):
                     self._backend = "litellm"
                     self._available = True
                     model = os.getenv("LITELLM_MODEL", "smart")
@@ -94,12 +135,11 @@ class LLMClient:
         # Best default for self-hosted/AI Empire since it doesn't need a credit card
         if self.nvidia_nim_key:
             try:
-                async with httpx.AsyncClient(timeout=3) as client:
-                    r = await client.get(
-                        f"{self.nvidia_nim_url}/models",
-                        headers={"Authorization": f"Bearer {self.nvidia_nim_key}"},
-                    )
-                    if r.status_code == 200:
+                st, _nb = await _http_get(
+                    f"{self.nvidia_nim_url}/models",
+                    headers={"Authorization": f"Bearer {self.nvidia_nim_key}"},
+                    timeout=3)
+                if st == 200:
                         self._backend = "nvidia_nim"
                         self._detected_model = self.nvidia_nim_model
                         self._base_url = self.nvidia_nim_url

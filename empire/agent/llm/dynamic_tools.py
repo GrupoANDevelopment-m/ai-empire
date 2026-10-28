@@ -34,6 +34,98 @@ def _extract_docstring(doc: str) -> tuple[str, str]:
     return summary, detail
 
 
+_DOC_FIELD_RE = re.compile(
+    r"^\s{4,}([a-zA-Z_][a-zA-Z0-9_]*)\s*\(([^)]*)\)\s*:\s*(.*)$")
+_DOC_INPUTS_SECTION = re.compile(
+    r"^\s*inputs?\s*:\s*$|^\s*Args?\s*:\s*$", re.IGNORECASE)
+_DOC_OTHER_SECTION = re.compile(
+    r"^\s*(returns?|raises?|yields?|examples?|notes?|attributes)\s*:\s*$",
+    re.IGNORECASE)
+
+
+def _pattern_b_fields_from_doc(doc: str) -> dict[str, dict]:
+    """Extract input fields from a Pattern-B docstring.
+
+    Recognises the convention used across the skills:
+
+        inputs:
+            prompt (str): required, text description
+            seed (int): -1 for random
+            wait (bool): if True (default), poll until ready
+    """
+    fields: dict[str, dict] = {}
+    if not doc:
+        return fields
+    in_section = False
+    for raw in doc.split("\n"):
+        if _DOC_INPUTS_SECTION.match(raw):
+            in_section = True
+            continue
+        if in_section and _DOC_OTHER_SECTION.match(raw):
+            in_section = False
+            continue
+        if not in_section:
+            continue
+        m = _DOC_FIELD_RE.match(raw)
+        if not m:
+            continue
+        name, typ, desc = m.group(1), m.group(2).strip(), m.group(3).strip()
+        t = typ.lower()
+        if t in ("str", "string", "text"):
+            jtype = "string"
+        elif t in ("int", "integer"):
+            jtype = "integer"
+        elif t in ("float", "number", "double"):
+            jtype = "number"
+        elif t in ("bool", "boolean"):
+            jtype = "boolean"
+        elif t in ("list", "array"):
+            jtype = "array"
+        elif t in ("dict", "object", "json"):
+            jtype = "object"
+        else:
+            jtype = "string"
+        required = bool(re.search(r"\brequired\b", desc, re.I))
+        fields[name] = {"type": jtype, "description": desc or name,
+                        "required": required}
+    return fields
+
+
+def _pattern_b_fields_from_source(fn: Callable) -> dict[str, dict]:
+    """Statically extract the keys a Pattern-B tool reads from `inputs`.
+
+    Browser-automation tools have no docstring, so the only reliable source
+    of truth is the code itself: every `inputs.get("key")` / `inputs["key"]`
+    is a real input the tool reads.
+    """
+    import ast
+    try:
+        src = inspect.getsource(fn)
+        tree = ast.parse(src)
+    except (OSError, TypeError, SyntaxError, IndentationError):
+        return {}
+    keys: dict[str, dict] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        if not (isinstance(f, ast.Attribute) and f.attr == "get"
+                and isinstance(f.value, ast.Name) and f.value.id == "inputs"):
+            continue
+        if not node.args or not isinstance(node.args[0], ast.Constant):
+            continue
+        k = node.args[0].value
+        if not isinstance(k, str) or k in keys:
+            continue
+        keys[k] = {"type": "string", "description": k, "required": False}
+    return keys
+
+
+def _skill_slug(skill_name: str) -> str:
+    """Normalise a skill name for use in a tool name (web-search -> web_search)."""
+    return re.sub(r"[^a-z0-9]+", "_", skill_name.lower()).strip("_")
+
+
 def _func_to_tool_def(fn: Callable, skill_name: str, tool_filename: str) -> dict:
     """Convert a Python function to OpenAI-compatible tool definition.
     
@@ -54,22 +146,28 @@ def _func_to_tool_def(fn: Callable, skill_name: str, tool_filename: str) -> dict
     )
     
     if is_pattern_b:
-        # Pattern B: single `inputs` dict
+        # Pattern B: single `inputs` dict.
+        # The tool reads fields from the TOP level of the dict, so the schema
+        # must expose the real field names — not a nested "inputs" object.
+        fields = _pattern_b_fields_from_doc(doc)
+        for k, v in _pattern_b_fields_from_source(fn).items():
+            fields.setdefault(k, v)
+        props = {k: {"type": v["type"], "description": v["description"]}
+                 for k, v in fields.items()}
+        schema = {
+            "type": "object",
+            "properties": props,
+            "additionalProperties": True,
+        }
+        required = [k for k, v in fields.items() if v.get("required")]
+        if required:
+            schema["required"] = required
         return {
             "type": "function",
             "function": {
                 "name": fn.__name__,
                 "description": summary or f"Tool {fn.__name__} from {skill_name}",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "inputs": {
-                            "type": "object",
-                            "description": f"Parameters for {fn.__name__}. See docstring for field details.",
-                            "additionalProperties": True,
-                        }
-                    },
-                },
+                "parameters": schema,
             },
         }
     
@@ -205,16 +303,22 @@ def discover_skill_tools() -> dict:
         if skill_dir.name.startswith(".") or skill_dir.name.startswith("__"):
             continue
         
-        # Detect tools dir: either <skill>/tools/ or <skill>/.skill/tools/
-        if (skill_dir / "tools").is_dir():
-            tools_dir = skill_dir / "tools"
-        elif (skill_dir / ".skill" / "tools").is_dir():
-            tools_dir = skill_dir / ".skill" / "tools"
-        else:
+        # Detect tools dir: either <skill>/tools/ or <skill>/.skill/tools/.
+        # Both layouts are supported; if a skill has both, load BOTH so no
+        # tool is silently dropped.
+        _cands = [skill_dir / "tools", skill_dir / ".skill" / "tools"]
+        _dirs = [d for d in _cands if d.is_dir()]
+        if len(_dirs) > 1:
+            log.warning("skill %s has tools in %d locations; loading all of them",
+                        skill_dir.name, len(_dirs))
+        if not _dirs:
             continue
         
         skill_tools = {}
-        for tool_file in sorted(tools_dir.glob("*.py")):
+        _all_files = []
+        for _d in _dirs:
+            _all_files.extend(sorted(_d.glob("*.py")))
+        for tool_file in _all_files:
             if tool_file.name.startswith("_") and tool_file.name != "__init__.py":
                 continue
             if tool_file.name == "__init__.py":
@@ -239,20 +343,23 @@ def discover_skill_tools() -> dict:
                     log.debug(f"No main function in {skill_dir.name}/{tool_file.name}")
                     continue
                 
-                # Use the function's actual name (e.g., "run" for Pattern B, or tool name for Pattern A)
-                # For LLM dispatch, we want a unique name per tool
-                func_name = func.__name__
-                if func_name == "run":
-                    # Pattern B — name by file
-                    tool_key = tool_file.stem
-                    func_name = tool_key  # rename for LLM clarity
-                else:
-                    tool_key = func_name
-                
+                # Use the function's actual name (e.g., "run" for Pattern B, or
+                # tool name for Pattern A). The LLM-facing name is namespaced
+                # by skill so that tools with the same short name in different
+                # skills (extract_text exists in both pdf and web-search)
+                # stay distinguishable.
+                short_name = func.__name__
+                if short_name == "run":
+                    short_name = tool_file.stem
+                tool_key = short_name
+                func_name = f"{_skill_slug(skill_dir.name)}__{short_name}"
+
                 tool_def = _func_to_tool_def(func, skill_dir.name, tool_file.name)
-                # Override the function name in the tool def if needed
-                if func_name != func.__name__:
-                    tool_def["function"]["name"] = func_name
+                tool_def["function"]["name"] = func_name
+                tool_def["function"].setdefault(
+                    "description",
+                    f"[{skill_dir.name}] {tool_def['function'].get('description', '')}"
+                )
                 
                 skill_tools[tool_key] = {
                     "module": module,
@@ -306,56 +413,90 @@ async def execute_skill_tool(name: str, arguments: dict) -> str:
     
     Pattern A: function(arg1, arg2, ...) — arguments dict is unpacked
     Pattern B: run(inputs) — arguments dict is passed as `inputs`
+
+    Accepts both the namespaced name ("pdf__extract_text") and the bare
+    short name ("extract_text"). A bare name that exists in more than one
+    skill is ambiguous and is rejected rather than silently resolved to the
+    first match.
     """
     discovered = discover_skill_tools()
-    
+
+    # 1) exact namespaced match
     for skill_name, tools in discovered.items():
         for tool_name, info in tools.items():
-            if info["func_name"] == name or tool_name == name:
-                func = info["func"]
-                sig = inspect.signature(func)
-                params = list(sig.parameters.values())
-                
-                try:
-                    # Detect Pattern B by looking at the function signature
-                    is_pattern_b = (
-                        len(params) == 1
-                        and params[0].name in ("inputs", "input", "data", "payload")
-                    )
-                    
-                    if is_pattern_b:
-                        if inspect.iscoroutinefunction(func):
-                            result = await func(arguments)
-                        else:
-                            result = func(arguments)
-                    else:
-                        # Detect **kwargs (VAR_KEYWORD) — pass everything through
-                        has_var_kw = any(
-                            p.kind == inspect.Parameter.VAR_KEYWORD
-                            for p in params
-                        )
-                        if has_var_kw:
-                            # Function accepts arbitrary kwargs — pass all arguments
-                            call_args = dict(arguments)
-                        else:
-                            # Filter to known params only
-                            call_args = {
-                                p: arguments[p]
-                                for p in sig.parameters
-                                if p != "self" and p in arguments
-                            }
-                        if inspect.iscoroutinefunction(func):
-                            result = await func(**call_args)
-                        else:
-                            result = func(**call_args)
-                    
-                    if not isinstance(result, str):
-                        result = json.dumps(result, default=str, indent=2)
-                    return result
-                except Exception as e:
-                    return f"Error executing {skill_name}.{name}: {type(e).__name__}: {e}"
-    
-    return f"Tool '{name}' not found. Available tools: {len(all_tool_names())}"
+            if info["func_name"] == name:
+                return await _invoke_tool(info, arguments)
+
+    # 2) bare short name — only if unambiguous
+    matches = [(skill_name, tool_name, info)
+               for skill_name, tools in discovered.items()
+               for tool_name, info in tools.items()
+               if tool_name == name]
+    if len(matches) == 1:
+        return await _invoke_tool(matches[0][2], arguments)
+    if len(matches) > 1:
+        names = ", ".join(sorted(m[2]["func_name"] for m in matches))
+        return json.dumps({
+            "ok": False,
+            "error": f"ambiguous tool name {name!r} — it exists in multiple "
+                     f"skills. Use one of: {names}",
+        })
+    return json.dumps({"ok": False, "error": f"unknown tool: {name}"})
+
+
+async def _invoke_tool(info: dict, arguments: dict) -> str:
+    """Call a discovered tool and serialise the result."""
+    func = info["func"]
+    sig = inspect.signature(func)
+    params = list(sig.parameters.values())
+
+    try:
+        # Detect Pattern B by looking at the function signature
+        is_pattern_b = (
+            len(params) == 1
+            and params[0].name in ("inputs", "input", "data", "payload")
+        )
+
+        if is_pattern_b:
+            # The tool reads fields from the TOP level of the dict.
+            # Be tolerant: if a caller (or a model trained on the old
+            # nested schema) sends {"inputs": {...}}, unwrap it.
+            payload = arguments
+            if (isinstance(payload, dict)
+                    and set(payload.keys()) == {"inputs"}
+                    and isinstance(payload.get("inputs"), dict)):
+                payload = payload["inputs"]
+            if inspect.iscoroutinefunction(func):
+                result = await func(payload)
+            else:
+                result = func(payload)
+        else:
+            # Detect **kwargs (VAR_KEYWORD) — pass everything through
+            has_var_kw = any(
+                p.kind == inspect.Parameter.VAR_KEYWORD
+                for p in params
+            )
+            if has_var_kw:
+                # Function accepts arbitrary kwargs — pass all arguments
+                call_args = dict(arguments)
+            else:
+                # Filter to known params only
+                call_args = {
+                    p: arguments[p]
+                    for p in sig.parameters
+                    if p != "self" and p in arguments
+                }
+            if inspect.iscoroutinefunction(func):
+                result = await func(**call_args)
+            else:
+                result = func(**call_args)
+
+        if not isinstance(result, str):
+            result = json.dumps(result, default=str, indent=2)
+        return result
+    except Exception as e:
+        return (f"Error executing {info.get('func_name', '?')}: "
+                f"{type(e).__name__}: {e}")
 
 
 def stats() -> dict:

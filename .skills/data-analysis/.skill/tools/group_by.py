@@ -1,24 +1,35 @@
-"""group_by — data analysis operation."""
-import json
-import asyncio
-from typing import Optional, Any
-import pandas as pd
-import numpy as np
+"""group_by — group and aggregate."""
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _data import load_df
+from describe import _safe
 
 
 async def group_by(**kwargs) -> dict:
-    """Data analysis operation using pandas/numpy."""
-    try:
-        if "group_by" == "load_csv":
-            df = pd.read_csv(kwargs["path"])
-            return {"rows": len(df), "columns": list(df.columns), "preview": df.head(5).to_dict(orient="records")}
-        if "group_by" == "describe":
-            df = pd.DataFrame(kwargs["data"])
-            return df.describe().to_dict()
-        if "group_by" == "correlation":
-            df = pd.DataFrame(kwargs["data"])
-            return df.corr().to_dict()
-        # ... more ops
-        return {"status": "ok", "tool": "group_by"}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+    """
+    Group by one or more columns and aggregate.
+
+    Args:
+        data: dataset
+        by: column name(s) to group by
+        agg: dict like {"mrr": "sum"} or a list of aggregations
+        path: file path (alternative to data)
+
+    Returns:
+        {"ok": True, "groups": int, "result": [...]}
+    """
+    df = load_df(kwargs.get("data"), kwargs.get("path"))
+    by = kwargs.get("by")
+    if not by:
+        raise ValueError("'by' is required")
+    if isinstance(by, str):
+        by = [by]
+    for c in by:
+        if c not in df.columns:
+            raise ValueError(f"column not found: {c} (have: {list(df.columns)})")
+    agg = kwargs.get("agg") or {"count": "*"}
+    if isinstance(agg, dict):
+        out = df.groupby(by).agg(agg).reset_index()
+    else:
+        out = df.groupby(by).agg(agg).reset_index()
+    return {"ok": True, "groups": len(out), "by": by, "result": _safe(out.to_dict(orient="records"))}

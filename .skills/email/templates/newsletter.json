@@ -1,0 +1,6 @@
+{
+  "id": "newsletter",
+  "subject": "{{subject_line}}",
+  "body": "Olá {{name}},\n\n{{content}}\n\naté mais,\n{{sender}}",
+  "required_vars": ["name", "subject_line", "content"]
+}

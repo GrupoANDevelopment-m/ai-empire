@@ -144,11 +144,16 @@ async def execute_action(session_id, action, params=None, tenant=None):
 
 
 def run_action_sync(session_id, action, params=None, tenant=None):
+    """Run a browser action on the session manager's dedicated event loop.
+
+    Playwright objects are bound to the loop that created them, so every
+    action must run on the same long-lived loop — creating a new loop per
+    call tears the driver down (EPIPE) after the first action.
+    """
+    from empire.browser.session import get_manager
+    mgr = get_manager()
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(execute_action(session_id, action, params, tenant))
-        finally: loop.close()
+        return mgr.run(execute_action(session_id, action, params, tenant),
+                        timeout=120)
     except Exception as e:
         return {"error": f"{type(e).__name__}: {str(e)[:300]}"}

@@ -9,7 +9,7 @@ import asyncio
 import logging
 import os
 import subprocess
-import httpx
+from ... import httpx_compat as httpx
 from pathlib import Path
 from typing import Any
 

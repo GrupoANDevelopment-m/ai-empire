@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 from urllib.parse import urlencode
 
-import httpx
+from .. import httpx_compat as httpx
 
 
 @dataclass

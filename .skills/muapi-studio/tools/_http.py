@@ -24,10 +24,15 @@ def _has_api_key():
     return bool(_api_key())
 
 
-def request(method, path, body=None, timeout=30):
-    """Make an HTTP request to MuAPI. Returns parsed JSON or raises."""
+def request(method, path, body=None, timeout=30, require_key=True):
+    """Make an HTTP request to MuAPI. Returns parsed JSON or raises.
+
+    require_key=False is for PUBLIC endpoints (e.g. /openapi.json) that do
+    not need the account key — those must still work without a key
+    configured, otherwise callers would silently get an empty catalogue.
+    """
     key = _api_key()
-    if not key:
+    if require_key and not key:
         return {
             "ok": False,
             "error": "MUAPI_API_KEY not configured — set it in .env or tenant config",
@@ -35,10 +40,11 @@ def request(method, path, body=None, timeout=30):
 
     url = f"{MUAPI_BASE}{path}"
     headers = {
-        "x-api-key": key,
         "Content-Type": "application/json",
         "User-Agent": "AI-Empire/muapi-studio/1.0",
     }
+    if key:
+        headers["x-api-key"] = key
     data = None
     if body is not None:
         data = json.dumps(body).encode("utf-8")
@@ -53,10 +59,15 @@ def request(method, path, body=None, timeout=30):
 
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+            raw = r.read().decode("utf-8")
+            try:
+                data_out = json.loads(raw)
+            except ValueError:
+                data_out = raw
             return {
                 "ok": True,
                 "status": r.status,
-                "data": json.loads(r.read().decode("utf-8")),
+                "data": data_out,
             }
     except urllib.error.HTTPError as e:
         return {
@@ -68,6 +79,11 @@ def request(method, path, body=None, timeout=30):
         return {"ok": False, "error": f"Network: {e.reason}"}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
+
+
+def request_public(method, path, body=None, timeout=30):
+    """Request a PUBLIC MuAPI endpoint (no account key required)."""
+    return request(method, path, body=body, timeout=timeout, require_key=False)
 
 
 def poll_result(request_id, max_attempts=120, interval_ms=2000):

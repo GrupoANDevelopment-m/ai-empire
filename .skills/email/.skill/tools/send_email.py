@@ -49,6 +49,16 @@ async def send_email(
     smtp_password = smtp_password or os.getenv("SMTP_PASSWORD", "")
     from_email = from_email or smtp_user
 
+    # Fail fast instead of dialling the SMTP server with no credentials.
+    missing = [n for n, v in (("SMTP_USER", smtp_user),
+                              ("SMTP_PASSWORD", smtp_password)) if not v]
+    if missing:
+        raise RuntimeError(
+            "Email not configured — set " + ", ".join(missing) +
+            f" in .env (SMTP_HOST defaults to {smtp_host}:{smtp_port}). "
+            "Use a Gmail app password if 2FA is enabled."
+        )
+
     if isinstance(to, str):
         to = [to]
 
