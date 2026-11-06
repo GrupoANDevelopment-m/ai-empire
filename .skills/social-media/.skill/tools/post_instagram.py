@@ -1,7 +1,14 @@
 """post_instagram — real Instagram Graph API (two-stage: create container + publish)."""
+from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _social import token_for
+
 
 
 async def post_instagram(caption: str, image_url: str = None,
@@ -41,7 +48,7 @@ async def post_instagram(caption: str, image_url: str = None,
     tok = token_for("instagram")["INSTAGRAM_TOKEN"]
     import importlib.util
     s = importlib.util.spec_from_file_location(
-        "sm_api5", "/workspace/ai-empire/.skills/_shared/api.py")
+        "sm_api5", f"{_ROOT}/.skills/_shared/api.py")
     m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
 
     # Stage 1: create media container

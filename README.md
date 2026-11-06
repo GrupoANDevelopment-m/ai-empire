@@ -1,11 +1,11 @@
 # AI Empire
 
-**Self-hosted AI agent platform with 13 skills, 200+ tools, multi-region deployment.**
+**Self-hosted AI agent platform with 13 skills, 133 tools, multi-region deployment.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Kubernetes ready](https://img.shields.io/badge/k8s-ready-green.svg)](deploy/helm/ai-empire/)
-[![Production tested](https://img.shields.io/badge/production-tested-brightgreen.svg)](benchmarks/data/production_load_test.json)
+[![Load tested](https://img.shields.io/badge/load%20tested%20(local)-blue.svg)](benchmarks/data/production_load_test.json)
 
 AI Empire is a complete, production-ready AI agent platform. Install with one
 command, customize per tenant, and run anywhere — local Docker, Kubernetes,
@@ -19,7 +19,7 @@ or AWS multi-region.
 - Drop-in tool calling across all backends
 - Streaming, JSON mode, vision
 
-### 🛠️ 13 Skills, 200+ Tools
+### 🛠️ 13 Skills, 133 Tools
 
 | Skill | Tools | Description |
 |-------|-------|-------------|
@@ -138,13 +138,17 @@ cp .env.example .env
 | Server boot | ✓ | 1756 lines, all routes |
 | Auth | ✓ | Real JWT, bcrypt, MFA support |
 | LLM | ✓ | NVIDIA NIM end-to-end + tool calling |
-| 200 tools | ✓ | 13 skills installed |
+| 133 tools | ✓ | 13 skills installed, all audited and executed |
 | Chromium 1243 | ✓ | Real Playwright 1.63 |
 | PII PT-BR | ✓ | 12/12 patterns |
-| Load test | ✓ | 200 concurrent at 120 RPS |
+| Load test | ✓ | measured locally — 100 concurrent, see below |
 | Token leak | ✓ | 0 occurrences |
 
-See [benchmarks/data/production_load_test.json](benchmarks/data/production_load_test.json) for full data.
+The load-test numbers above come from a **local, single-process** run
+against this checkout — they are not measurements of a managed production
+deployment. Re-run `python3 benchmarks/run_load_test.py --base-url <your-api>`
+to measure your own environment. The recorded run is in
+[benchmarks/data/production_load_test.json](benchmarks/data/production_load_test.json).
 
 ## Documentation
 

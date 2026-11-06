@@ -17,7 +17,7 @@ class MCPClient:
     
     def load(self) -> None:
         """Load all available MCP servers from registry."""
-        import yaml
+        from empire import yaml_compat as yaml
         with open(self.registry_path) as f:
             registry = yaml.safe_load(f)
         

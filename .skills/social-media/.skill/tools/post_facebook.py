@@ -1,7 +1,14 @@
 """post_facebook — real Facebook Page feed post."""
+from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _social import token_for
+
 
 
 async def post_facebook(message: str, page_id: str = None,
@@ -28,7 +35,7 @@ async def post_facebook(message: str, page_id: str = None,
         body["link"] = link
     import importlib.util
     s = importlib.util.spec_from_file_location(
-        "sm_api4", "/workspace/ai-empire/.skills/_shared/api.py")
+        "sm_api4", f"{_ROOT}/.skills/_shared/api.py")
     m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
     r = await m.request("POST", f"https://graph.facebook.com/v19.0/{pid}/feed",
                         headers=h, json_body=body)

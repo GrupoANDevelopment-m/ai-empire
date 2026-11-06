@@ -1,6 +1,13 @@
 """Render screenshots of all premium pages."""
+from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 import asyncio
 from playwright.async_api import async_playwright
+
 
 PAGES = [
     ("index.html",        "screenshot-full.png",    "screenshot-hero.png",   3000),
@@ -29,12 +36,12 @@ async def shoot():
         page = await ctx.new_page()
         for html, full, hero, wait_ms in PAGES:
             print(f"shooting {html}...", flush=True)
-            await page.goto(f"file:///workspace/ai-empire/web/premium/{html}",
+            await page.goto(f"file://{_ROOT}/web/premium/{html}",
                             wait_until="domcontentloaded", timeout=15000)
             await page.wait_for_timeout(wait_ms)
             await page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
-            await page.screenshot(path=f"/workspace/ai-empire/web/premium/{full}", full_page=True)
-            await page.screenshot(path=f"/workspace/ai-empire/web/premium/{hero}", full_page=False)
+            await page.screenshot(path=f"{_ROOT}/web/premium/{full}", full_page=True)
+            await page.screenshot(path=f"{_ROOT}/web/premium/{hero}", full_page=False)
         await browser.close()
         print(f"✓ {len(PAGES)} pages", flush=True)
 

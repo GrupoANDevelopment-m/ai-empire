@@ -16,12 +16,19 @@ import importlib.util
 import inspect
 import re
 import logging
+import time
 from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 from typing import Any, Callable, Awaitable, Optional
+
 
 log = logging.getLogger("empire.dynamic_tools")
 
-SKILLS_ROOT = Path(os.getenv("EMPIRE_SKILLS_DIR", "/workspace/ai-empire/.skills"))
+SKILLS_ROOT = Path(os.getenv("EMPIRE_SKILLS_DIR", f"{_ROOT}/.skills"))
 
 
 def _extract_docstring(doc: str) -> tuple[str, str]:
@@ -274,10 +281,51 @@ def _find_main_function(module, filename: str) -> Optional[Callable]:
     return None
 
 
-def discover_skill_tools() -> dict:
+_SIGNATURE_CACHE: dict = {"at": 0.0, "value": None}
+_SIGNATURE_TTL = 1.0  # seconds
+
+
+def _tool_files_signature() -> tuple:
+    """Fingerprint every tool file (path + mtime + size).
+
+    Used to invalidate the discovery cache when a skill's tools change.
+    The fingerprint is refreshed at most once per second: on a network
+    filesystem 133 stat() calls cost ~250ms, which would otherwise
+    dominate every tool call.
+    """
+    now = time.monotonic()
+    if (_SIGNATURE_CACHE["value"] is not None
+            and now - _SIGNATURE_CACHE["at"] < _SIGNATURE_TTL):
+        return _SIGNATURE_CACHE["value"]
+
+    sig = []
+    if not SKILLS_ROOT.exists():
+        _SIGNATURE_CACHE.update(at=now, value=())
+        return ()
+    for skill_dir in sorted(SKILLS_ROOT.iterdir()):
+        if not skill_dir.is_dir() or skill_dir.name.startswith((".", "__")):
+            continue
+        for d in (skill_dir / "tools", skill_dir / ".skill" / "tools"):
+            if not d.is_dir():
+                continue
+            for f in sorted(d.glob("*.py")):
+                try:
+                    st = f.stat()
+                except OSError:
+                    continue
+                sig.append((str(f), int(st.st_mtime_ns), st.st_size))
+    value = tuple(sig)
+    _SIGNATURE_CACHE.update(at=now, value=value)
+    return value
+
+
+_DISCOVERY_CACHE: dict = {"signature": None, "result": None}
+
+
+def discover_skill_tools(force: bool = False) -> dict:
     """
     Walk all .skills/*/ and load their tools/*.py.
-    
+
     Returns:
         {
             "skill_name": {
@@ -289,7 +337,16 @@ def discover_skill_tools() -> dict:
                 }
             }
         }
+
+    The result is cached and invalidated when any tool file changes
+    (path/mtime/size). Without the cache every tool call re-executed all
+    133 tool modules, which dominated the agent's latency.
     """
+    signature = _tool_files_signature()
+    if (not force and _DISCOVERY_CACHE["signature"] == signature
+            and _DISCOVERY_CACHE["result"] is not None):
+        return _DISCOVERY_CACHE["result"]
+
     discovered = {}
     
     if not SKILLS_ROOT.exists():
@@ -374,7 +431,9 @@ def discover_skill_tools() -> dict:
         
         if skill_tools:
             discovered[skill_dir.name] = skill_tools
-    
+
+    _DISCOVERY_CACHE["signature"] = signature
+    _DISCOVERY_CACHE["result"] = discovered
     return discovered
 
 
@@ -408,6 +467,42 @@ def get_skill_for_tool(name: str) -> Optional[str]:
     return None
 
 
+def resolve_tool_call(name: str) -> Optional[dict]:
+    """Resolve a tool name (namespaced or bare) to its registry entry.
+
+    Returns the info dict, or None when the name is unknown. A bare name
+    that exists in more than one skill is ambiguous and is reported as an
+    error entry rather than resolved to an arbitrary skill.
+    """
+    discovered = discover_skill_tools()
+
+    # 1) exact namespaced match
+    for skill_name, tools in discovered.items():
+        for tool_name, info in tools.items():
+            if info["func_name"] == name:
+                return info
+
+    # 2) bare short name — only if unambiguous
+    matches = [info
+               for tools in discovered.values()
+               for tool_name, info in tools.items()
+               if tool_name == name]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        names = ", ".join(sorted(m["func_name"] for m in matches))
+        return {"error": f"ambiguous tool name {name!r} — it exists in "
+                         f"multiple skills. Use one of: {names}"}
+    return None
+
+
+async def invoke_tool(info: dict, arguments: dict) -> str:
+    """Call a resolved tool and return its serialised result."""
+    if info.get("error"):
+        return json.dumps({"ok": False, "error": info["error"]})
+    return await _invoke_tool(info, arguments)
+
+
 async def execute_skill_tool(name: str, arguments: dict) -> str:
     """Execute a tool by name across all skills.
     
@@ -419,29 +514,10 @@ async def execute_skill_tool(name: str, arguments: dict) -> str:
     skill is ambiguous and is rejected rather than silently resolved to the
     first match.
     """
-    discovered = discover_skill_tools()
-
-    # 1) exact namespaced match
-    for skill_name, tools in discovered.items():
-        for tool_name, info in tools.items():
-            if info["func_name"] == name:
-                return await _invoke_tool(info, arguments)
-
-    # 2) bare short name — only if unambiguous
-    matches = [(skill_name, tool_name, info)
-               for skill_name, tools in discovered.items()
-               for tool_name, info in tools.items()
-               if tool_name == name]
-    if len(matches) == 1:
-        return await _invoke_tool(matches[0][2], arguments)
-    if len(matches) > 1:
-        names = ", ".join(sorted(m[2]["func_name"] for m in matches))
-        return json.dumps({
-            "ok": False,
-            "error": f"ambiguous tool name {name!r} — it exists in multiple "
-                     f"skills. Use one of: {names}",
-        })
-    return json.dumps({"ok": False, "error": f"unknown tool: {name}"})
+    info = resolve_tool_call(name)
+    if info is None:
+        return json.dumps({"ok": False, "error": f"unknown tool: {name}"})
+    return await invoke_tool(info, arguments)
 
 
 async def _invoke_tool(info: dict, arguments: dict) -> str:

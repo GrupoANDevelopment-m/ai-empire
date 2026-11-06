@@ -1,7 +1,14 @@
 """CRM backend — real HubSpot / Salesforce REST."""
+from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 import os, sys, importlib.util
+
 _s = importlib.util.spec_from_file_location(
-    "crm_api", "/workspace/ai-empire/.skills/_shared/api.py")
+    "crm_api", f"{_ROOT}/.skills/_shared/api.py")
 api = importlib.util.module_from_spec(_s); _s.loader.exec_module(api)
 
 

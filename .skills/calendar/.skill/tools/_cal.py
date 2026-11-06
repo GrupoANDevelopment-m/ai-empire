@@ -1,9 +1,16 @@
 """Calendar backend — real Google Calendar / Microsoft Graph."""
+from pathlib import Path
+
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 import os, sys, asyncio
-sys.path.insert(0, "/workspace/ai-empire/.skills/_shared")
+sys.path.insert(0, f"{_ROOT}/.skills/_shared")
 import importlib.util
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
 _s = importlib.util.spec_from_file_location(
-    "empire_api", "/workspace/ai-empire/.skills/_shared/api.py")
+    "empire_api", f"{_ROOT}/.skills/_shared/api.py")
 api = importlib.util.module_from_spec(_s); _s.loader.exec_module(api)
 
 GAPI = "https://www.googleapis.com/calendar/v3"

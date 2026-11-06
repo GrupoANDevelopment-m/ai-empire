@@ -26,6 +26,7 @@ Endpoints:
   GET  /logs.html                       — audit log viewer
   GET  /approvals.html                  — HITL approver
 """
+from empire import httpx_compat as httpx
 import os
 import sys
 import asyncio
@@ -985,6 +986,11 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest, request: Request, user=Depends(get_current_user)):
+    """Run a real EmpireAgent turn and return its answer.
+
+    The agent decides which tools to call; tool calls are executed for real
+    and their results are fed back into the reasoning loop.
+    """
     # Validate input
     if not req.message or not req.message.strip():
         raise HTTPException(400, "message cannot be empty")
@@ -993,10 +999,57 @@ async def chat(req: ChatRequest, request: Request, user=Depends(get_current_user
     audit("chat.message", actor=user["email"], tenant=user["tenant"],
           summary=req.message[:200],
           metadata={"session": req.session})
+
+    try:
+        from empire.agent.llm import EmpireAgent
+        from empire.registry.discovery import (build_capability_prompt,
+                                               discover_all_capabilities)
+    except ImportError as e:
+        raise HTTPException(503, f"agent runtime unavailable: {e}")
+
+    caps = discover_all_capabilities()
+    agent = EmpireAgent(tenant=user["tenant"])
+    if hasattr(agent, "set_capabilities"):
+        agent.set_capabilities(caps)
+
+    tool_calls: list[dict] = []
+
+    def on_tc(name, args):
+        tool_calls.append({"name": name, "args": args})
+
+    if hasattr(agent, "on_tool_call"):
+        agent.on_tool_call = on_tc
+
+    try:
+        answer, chunks = "", []
+        async for event in agent.stream(req.message, session=req.session):
+            kind = event.get("type")
+            if kind == "text":
+                chunks.append(event.get("content", "") or "")
+            elif kind == "tool_call":
+                tool_calls.append({"name": event.get("tool"),
+                                   "args": event.get("args")})
+            elif kind == "tool_result":
+                tool_calls.append({"name": event.get("tool"),
+                                   "result": event.get("result")})
+            elif kind == "error":
+                detail = event.get("text") or event.get("error") or "agent error"
+                raise HTTPException(503, str(detail))
+        answer = "".join(chunks)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"agent failed: {type(e).__name__}: {e}")
+
     return {
-        "response": f"[fallback] Recebido: {req.message[:200]}",
+        "response": answer,
         "session": req.session,
         "tenant": user["tenant"],
+        "tool_calls": tool_calls,
+        "capabilities": {
+            "skills": len(caps.get("skills", {}).get("active", [])),
+            "tools": len(caps.get("skills", {}).get("tools", [])),
+        },
     }
 
 
@@ -1036,62 +1089,59 @@ async def ws_agent(ws: WebSocket):
 
 
 async def _stream_agent_response(ws, prompt, session, tenant, user_payload):
-    """Stream tokens. Tries real EmpireAgent with capability injection, then fallback."""
+    """Stream a real EmpireAgent turn over the WebSocket.
+
+    The agent yields typed events (text / tool_call / tool_result / done /
+    error); they are translated into the client protocol here. If no LLM
+    backend is reachable the client is told so explicitly — the server never
+    fabricates an answer.
+    """
     try:
         from empire.agent.llm import EmpireAgent
-        from empire.registry.discovery import build_capability_prompt, discover_all_capabilities
-        # Build the capability-aware system prompt
-        caps = discover_all_capabilities()
-        cap_prompt = build_capability_prompt()
-        agent = EmpireAgent(tenant=tenant)
-        # If agent supports system prompt injection, use it
-        if hasattr(agent, "set_capabilities"):
-            agent.set_capabilities(caps)
-        if hasattr(agent, "on_tool_call"):
-            def on_tc(name, args):
-                asyncio.create_task(ws.send_json({"type": "tool_call", "name": name, "args": args}))
-            agent.on_tool_call = on_tc
-        # Send capability snapshot to client
-        await ws.send_json({"type": "capabilities", "data": caps})
-        async for chunk in agent.stream(prompt, session=session):
-            await ws.send_json({"type": "token", "content": chunk})
+        from empire.registry.discovery import discover_all_capabilities
+    except ImportError as e:
+        await ws.send_json({"type": "error",
+                            "error": f"agent runtime unavailable: {e}"})
         await ws.send_json({"type": "done"})
         return
-    except ImportError:
-        pass
+
+    caps = discover_all_capabilities()
+    agent = EmpireAgent(tenant=tenant)
+    if hasattr(agent, "set_capabilities"):
+        agent.set_capabilities(caps)
+
+    await ws.send_json({"type": "capabilities", "data": caps})
     try:
-        from empire.registry.forge import call_llm
-        from empire.registry.discovery import build_capability_prompt
-        sys_prompt = build_capability_prompt()
-        result = await call_llm(prompt, system=sys_prompt, max_tokens=2000)
-        if not result.get("error") and result.get("content"):
-            # Send capabilities and stream content
-            from empire.registry.discovery import discover_all_capabilities
-            await ws.send_json({"type": "capabilities", "data": discover_all_capabilities()})
-            content = result["content"]
-            for w in content.split():
-                await ws.send_json({"type": "token", "content": w + " "})
-                await asyncio.sleep(0.01)
-            await ws.send_json({"type": "done", "model": result.get("model"),
-                              "cost_usd": result.get("cost_usd")})
-            return
-    except Exception:
-        pass
-    # Echo fallback
-    from empire.registry.discovery import discover_all_capabilities
-    await ws.send_json({"type": "capabilities", "data": discover_all_capabilities()})
-    msg = (f"Recebi sua mensagem. Para gerar respostas reais, configure "
-           f"OLLAMA_URL ou ANTHROPIC_API_KEY/OPENAI_API_KEY. "
-           f"Você disse: {prompt[:200]}")
-    for w in msg.split():
-        await ws.send_json({"type": "token", "content": w + " "})
-        await asyncio.sleep(0.015)
-    await ws.send_json({"type": "done"})
+        async for event in agent.stream(prompt, session=session):
+            kind = event.get("type")
+            if kind == "text":
+                await ws.send_json({"type": "token",
+                                    "content": event.get("content", "")})
+            elif kind == "tool_call":
+                await ws.send_json({"type": "tool_call",
+                                    "name": event.get("tool"),
+                                    "args": event.get("args")})
+            elif kind == "tool_result":
+                await ws.send_json({"type": "tool_result",
+                                    "name": event.get("tool"),
+                                    "result": event.get("result")})
+            elif kind == "error":
+                await ws.send_json({"type": "error",
+                                    "error": event.get("text")
+                                    or event.get("error") or "agent error"})
+        await ws.send_json({"type": "done"})
+        return
+    except Exception as e:
+        try:
+            await ws.send_json({"type": "error",
+                                "error": f"{type(e).__name__}: {e}"})
+            await ws.send_json({"type": "done"})
+        except Exception:
+            pass
 
 
 # ─── Required imports ──────────────────────────────────────────────────────
 
-import httpx
 
 
 # ─── Capabilities (Skills + MCPs + Forge) ──────────────────────────────────

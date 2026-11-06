@@ -387,6 +387,14 @@ def classify(stem, res, exc) -> tuple[str, str]:
             return "EMPTY", "ok=True but payload empty — possible fake success"
         if set(payload) == {"error"}:
             return "REFUSED", str(payload["error"])[:170]
+        # ok=True with count=0 and every collection field empty means the
+        # tool reported success while producing nothing — a fake success.
+        if res.get("count") == 0:
+            collections = [v for v in payload.values()
+                           if isinstance(v, (list, dict))]
+            if collections and all(not c for c in collections):
+                return "EMPTY", ("ok=True but count=0 and every collection "
+                                 "field is empty — possible fake success")
         return "PASS", json.dumps(payload, default=str)[:170]
     return "PASS", str(res)[:170]
 

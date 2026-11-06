@@ -29,8 +29,13 @@ from empire.registry.sandbox import (
     validate_ast, run_in_sandbox, SandboxResult, sha256_str, PROFILES,
 )
 
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 
-FORGE_DIR = Path(os.getenv("EMPIRE_FORGE_DIR", "/workspace/ai-empire/.forge"))
+
+FORGE_DIR = Path(os.getenv("EMPIRE_FORGE_DIR", f"{_ROOT}/.forge"))
 FORGE_TOOLS_DIR = FORGE_DIR / "tools"
 FORGE_REGISTRY = FORGE_DIR / "registry.json"
 

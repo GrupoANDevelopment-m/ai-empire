@@ -10,7 +10,7 @@ sandbox_profile: standard
 network_policy:
   allowed:
     - api.hubapi.com
-    - *.salesforce.com
+    - "*.salesforce.com"
 self_test:
   command: "python3 -c 'from .tools.search_contacts import search_contacts; print(\"ok\")'"
   timeout: 10

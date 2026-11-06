@@ -3,8 +3,14 @@ import sys, os, json, uuid, sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
+
+
 DB = Path(os.getenv("EMPIRE_POST_QUEUE_DB",
-                    "/workspace/ai-empire/data/post_queue.db"))
+                    f"{_ROOT}/data/post_queue.db"))
 
 
 def _conn():

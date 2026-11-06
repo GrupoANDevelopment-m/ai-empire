@@ -1,10 +1,16 @@
 """Browser session manager with persistent user context (real Playwright)."""
 import os, time, asyncio, threading
 from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 from typing import Dict, Optional, Any, List
 from dataclasses import dataclass, field, asdict
 
-PROFILES_ROOT = Path(os.getenv("BROWSER_PROFILES_DIR", "/workspace/ai-empire/data/browser_profiles"))
+
+PROFILES_ROOT = Path(os.getenv("BROWSER_PROFILES_DIR", f"{_ROOT}/data/browser_profiles"))
 
 
 class _LoopThread:

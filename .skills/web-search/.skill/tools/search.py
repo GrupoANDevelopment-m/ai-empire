@@ -53,12 +53,23 @@ async def search(query: str, limit: int = 10, engine: str = "duckduckgo") -> dic
         raise ValueError(f"unsupported engine: {engine} (use duckduckgo or bing)")
 
     try:
-        r = await fetch(engines[engine](query, limit), timeout=20)
-        body = r["body"] if isinstance(r["body"], str) else str(r["body"])
-        results = _parse_ddg(body) if engine == "duckduckgo" else _parse_bing(body)
+        try:
+            r = await fetch(engines[engine](query, limit), timeout=20)
+            body = r["body"] if isinstance(r["body"], str) else str(r["body"])
+            results = _parse_ddg(body) if engine == "duckduckgo" else _parse_bing(body)
+        except Exception as primary_err:
+            # A transport failure (TLS reset, timeout) must still fall back
+            # to the secondary engine instead of aborting the search.
+            if engine != "duckduckgo":
+                raise
+            r = await fetch(f"https://www.bing.com/search?q={quote_plus(query)}", timeout=20)
+            body = r["body"] if isinstance(r["body"], str) else str(r["body"])
+            results = _parse_bing(body)
+            engine = "bing (fallback)"
         if not results and engine == "duckduckgo":
             r = await fetch(f"https://www.bing.com/search?q={quote_plus(query)}", timeout=20)
-            results = _parse_bing(r["body"] if isinstance(r["body"], str) else str(r["body"]))
+            body = r["body"] if isinstance(r["body"], str) else str(r["body"])
+            results = _parse_bing(body)
             engine = "bing (fallback)"
         # attach snippets
         snippets = re.findall(r'class="result__snippet"[^>]*>(.*?)</a>', body, re.S) \

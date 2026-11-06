@@ -1,7 +1,14 @@
 """summarize_url — real fetch + LLM summary of a single page."""
+from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import importlib.util
+
 
 
 def _load(name):
@@ -36,7 +43,7 @@ async def summarize_url(url: str, max_words: int = 200,
 
     summary, model = "", None
     try:
-        sys.path.insert(0, "/workspace/ai-empire")
+        sys.path.insert(0, f"{_ROOT}")
         from empire.agent.llm.client import LLMClient
         c = LLMClient()
         if not c.is_available:

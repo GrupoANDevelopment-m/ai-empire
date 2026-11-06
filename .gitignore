@@ -119,3 +119,8 @@ data/cache/
 /split/
 /pdf_images/
 *.ics
+.wheel-cache/
+
+# local verification clone (sparse checkout used for CI checks)
+.verify_clone/
+.verify_clone*/

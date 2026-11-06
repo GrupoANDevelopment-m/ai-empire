@@ -1,7 +1,14 @@
 """Shared translation engine — uses the configured LLM (NVIDIA NIM/OpenAI/etc)."""
+from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 import os, sys, asyncio, json
 
-sys.path.insert(0, "/workspace/ai-empire")
+
+sys.path.insert(0, f"{_ROOT}")
 
 
 async def llm_translate(text: str, target: str, source: str = None) -> dict:

@@ -10,51 +10,29 @@ import asyncio
 import logging
 from typing import Any
 
-try:
-    import httpx
-except ImportError:          # pragma: no cover - depends on install profile
-    httpx = None
+from empire import httpx_compat as httpx
 
 log = logging.getLogger("empire.llm")
 
 
 async def _http_get(url: str, headers: dict | None = None,
                     timeout: float = 3.0) -> tuple[int, str]:
-    """GET returning (status, text). Uses httpx, else stdlib urllib."""
-    if httpx is not None:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.get(url, headers=headers or {})
-            return r.status_code, r.text
-    return await asyncio.get_event_loop().run_in_executor(
-        None, lambda: _urllib_request("GET", url, headers, None, timeout))
+    """GET returning (status, text).
+
+    httpx is the compatibility shim, which uses the real httpx library when
+    it is installed and the standard library otherwise.
+    """
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.get(url, headers=headers or {})
+        return r.status_code, r.text
 
 
 async def _http_post(url: str, payload: dict, headers: dict | None = None,
                      timeout: float = 300.0) -> tuple[int, str]:
-    """POST with JSON body returning (status, text)."""
-    if httpx is not None:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.post(url, json=payload, headers=headers or {})
-            return r.status_code, r.text
-    return await asyncio.get_event_loop().run_in_executor(
-        None, lambda: _urllib_request("POST", url, headers, payload, timeout))
-
-
-def _urllib_request(method: str, url: str, headers: dict | None,
-                    payload: dict | None, timeout: float) -> tuple[int, str]:
-    """Real HTTP via stdlib urllib — used when httpx is not installed."""
-    import urllib.request, urllib.error
-    h = dict(headers or {})
-    h.setdefault("Content-Type", "application/json")
-    data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data, headers=h, method=method.upper())
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.status, r.read().decode("utf-8", "replace")
-    except urllib.error.HTTPError as e:
-        return e.code, e.read().decode("utf-8", "replace")
-    except Exception as e:
-        return 0, f"{type(e).__name__}: {e}"
+    """POST with a JSON body returning (status, text)."""
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        r = await client.post(url, json=payload, headers=headers or {})
+        return r.status_code, r.text
 
 
 class LLMUnavailable(Exception):
@@ -236,7 +214,15 @@ class LLMClient:
             r = await client.post(url, json=payload, headers=headers)
             if r.status_code != 200:
                 raise Exception(f"LLM error {r.status_code}: {r.text[:300]}")
-            return r.json()
+            data = r.json()
+            if not isinstance(data, dict) or "choices" not in data:
+                # An unusable payload must fail loudly — silently returning
+                # it would surface as an empty answer to the user.
+                raise Exception(
+                    f"LLM returned an unusable payload (no choices): {str(data)[:300]}")
+            if not data.get("choices"):
+                raise Exception("LLM returned zero choices")
+            return data
 
     async def _openai_stream(self, url, payload, headers):
         """Yield chunks from a streaming response."""

@@ -182,7 +182,9 @@ def _sync_request(method: str, url: str, *, headers=None, params=None,
     except urllib.error.HTTPError as e:
         return Response(e.code, e.read(), dict(e.headers or {}), full)
     except Exception as e:
-        return Response(0, str(e).encode(), {}, full)
+        # A transport failure is not an HTTP response. Raise instead of
+        # returning status 0 so callers cannot mistake it for a real reply.
+        raise RuntimeError(f"HTTP request to {full} failed: {e}") from e
 
 
 def _sync_stream(method: str, url: str, *, headers=None, params=None,

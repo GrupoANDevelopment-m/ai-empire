@@ -22,13 +22,19 @@ import time
 import pickle
 import hashlib
 from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field, asdict
 from collections import Counter
 from datetime import datetime, timezone
 
 
-SEMANTIC_DIR = Path("/workspace/ai-empire/empire_data/semantic")
+
+SEMANTIC_DIR = Path(f"{_ROOT}/empire_data/semantic")
 SEMANTIC_DIR.mkdir(parents=True, exist_ok=True)
 
 

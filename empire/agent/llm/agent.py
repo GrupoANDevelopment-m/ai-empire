@@ -241,6 +241,16 @@ class EmpireAgent:
             if not tool_calls:
                 if text_reply:
                     yield {"type": "text", "content": text_reply}
+                else:
+                    # The model returned neither text nor tool calls. Report
+                    # it honestly instead of ending the turn with silence.
+                    yield {
+                        "type": "error",
+                        "text": ("LLM returned an empty completion "
+                                 "(no content and no tool call)"),
+                        "backend": backend_info,
+                    }
+                    return
                 yield {
                     "type": "done",
                     "model": response.get("model", "unknown"),

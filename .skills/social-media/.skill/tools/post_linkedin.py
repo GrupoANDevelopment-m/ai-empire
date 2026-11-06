@@ -1,7 +1,14 @@
 """post_linkedin — real LinkedIn UGC post."""
+from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 import sys, os, json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _social import token_for, normalize, ENDPOINTS, browser_fallback
+
 
 
 async def post_linkedin(text: str, author_id: str = None,
@@ -51,7 +58,7 @@ async def post_linkedin(text: str, author_id: str = None,
     h = {"Authorization": f"Bearer {h}", "Content-Type": "application/json",
          "X-Restli-Protocol-Version": "2.0.0"}
     r = await __import__("importlib").util.spec_from_file_location(
-        "sm_api2", "/workspace/ai-empire/.skills/_shared/api.py")
+        "sm_api2", f"{_ROOT}/.skills/_shared/api.py")
     m = __import__("importlib").util.module_from_spec(r); r.loader.exec_module(m)
     res = await m.request("POST", ENDPOINTS["linkedin"]["posts"], headers=h, json_body=body)
     if not res.get("ok"):

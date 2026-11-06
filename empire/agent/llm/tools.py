@@ -11,7 +11,13 @@ import os
 import subprocess
 from ... import httpx_compat as httpx
 from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 from typing import Any
+
 
 log = logging.getLogger("empire.tools")
 
@@ -209,7 +215,7 @@ async def run_tests(target: str = "all") -> str:
 
     Returns: Human-readable test result with pass/fail counts.
     """
-    PROJECT_ROOT = "/workspace/ai-empire/orchestrator"
+    PROJECT_ROOT = f"{_ROOT}/orchestrator"
     target_map = {
         "all": "tests/",
         "circuit-breaker": "tests/test_circuit_breaker.py",
@@ -619,13 +625,35 @@ TOOL_FUNCTIONS = {
 
 
 async def execute_tool(name: str, arguments: dict) -> str:
-    """Execute a tool by name with the given arguments."""
-    fn = TOOL_FUNCTIONS.get(name)
-    if not fn:
-        return f"Unknown tool: {name}"
+    """Execute a tool by name with the given arguments.
+
+    Two registries exist:
+      * the dynamically discovered skill tools (one per .skills/*/tools/*.py),
+        which are what the agent advertises to the LLM;
+      * TOOL_FUNCTIONS — a small set of built-in agent tools.
+
+    The dynamic registry is consulted first, so a tool the model was told it
+    can call is always executable.
+    """
+    dyn_error = None
     try:
-        return await fn(**arguments)
-    except TypeError as e:
-        return f"Wrong arguments for {name}: {e}"
+        from .dynamic_tools import resolve_tool_call
+        info = resolve_tool_call(name)
+        if info is not None:
+            from .dynamic_tools import invoke_tool
+            return await invoke_tool(info, arguments)
     except Exception as e:
-        return f"Error in {name}: {type(e).__name__}: {e}"
+        dyn_error = f"{type(e).__name__}: {e}"
+
+    fn = TOOL_FUNCTIONS.get(name)
+    if fn:
+        try:
+            return await fn(**arguments)
+        except TypeError as e:
+            return f"Wrong arguments for {name}: {e}"
+        except Exception as e:
+            return f"Error in {name}: {type(e).__name__}: {e}"
+
+    if dyn_error:
+        return f"Error in {name}: {dyn_error}"
+    return f"Unknown tool: {name}"

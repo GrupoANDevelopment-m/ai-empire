@@ -1,0 +1,62 @@
+# Runtime dependencies resolved by install_wheels.py (no pip required).
+#
+# Pins marked "==" are ABI-coupled: installing a newer major breaks the
+# compiled extension it was built against.
+#
+#   python3 install_wheels.py -r requirements-runtime.txt
+#
+# catalogue==2.0.9  catalogue 2.1.0 imports pydantic v1 APIs
+#                    (pydantic.main.ModelMetaclass) and breaks on pydantic 2.
+# pydantic==2.11.9  2.12+ moved ModelMetaclass into pydantic._internal and
+#                    breaks the spacy/thinc/catalogue chain.
+
+# --- web / api ---
+fastapi==0.162.0
+uvicorn==0.54.0
+pydantic==2.11.9
+pydantic-settings
+python-multipart
+email-validator
+
+# --- auth / security ---
+PyJWT
+python-jose
+passlib
+bcrypt
+slowapi
+bleach
+presidio-analyzer
+spacy
+
+# --- http ---
+httpx
+httpcore
+requests
+
+# --- data / docs ---
+pandas
+numpy
+openpyxl
+matplotlib
+scikit-learn
+pypdf
+PyPDF2
+reportlab
+PyMuPDF
+pdfplumber
+Pillow
+beautifulsoup4
+
+# --- platform ---
+structlog
+tenacity
+pybreaker
+sqlalchemy
+asyncpg
+redis
+pyyaml
+openai
+click
+stripe
+langid
+playwright

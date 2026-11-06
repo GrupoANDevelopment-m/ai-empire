@@ -9,6 +9,12 @@ import sys
 import re
 from pathlib import Path
 
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
+
+
 # Map phrases to test files (or test names)
 PHRASE_MAP = [
     # Specific test files
@@ -30,7 +36,7 @@ class NLTestRunner:
     """Parse natural language → pytest."""
 
     def __init__(self, project_root: str | None = None):
-        self.project_root = Path(project_root or "/workspace/ai-empire/orchestrator")
+        self.project_root = Path(project_root or f"{_ROOT}/orchestrator")
 
     def resolve(self, text: str) -> str:
         """Return the pytest target (file path or ALL)."""

@@ -1,7 +1,14 @@
 """get_followers — real follower/audience counts."""
+from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _social import token_for, normalize
+
 
 
 async def get_followers(platform: str, account_id: str = None) -> dict:
@@ -18,7 +25,7 @@ async def get_followers(platform: str, account_id: str = None) -> dict:
     p = normalize(platform)
     import importlib.util
     s = importlib.util.spec_from_file_location(
-        "sm_api7", "/workspace/ai-empire/.skills/_shared/api.py")
+        "sm_api7", f"{_ROOT}/.skills/_shared/api.py")
     m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
 
     if p == "twitter":

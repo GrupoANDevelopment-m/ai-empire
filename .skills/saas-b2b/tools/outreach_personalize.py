@@ -1,7 +1,14 @@
 """outreach_personalize — real, grounded personalization draft."""
+from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import importlib.util
+
 _ce = importlib.util.spec_from_file_location(
     "op_ce", os.path.join(os.path.dirname(os.path.abspath(__file__)), "company_enrichment.py"))
 _ce_m = importlib.util.module_from_spec(_ce); _ce.loader.exec_module(_ce_m)
@@ -66,7 +73,7 @@ async def outreach_personalize(domain: str, sender_name: str,
     gen = "template"
     if use_llm:
         try:
-            sys.path.insert(0, "/workspace/ai-empire")
+            sys.path.insert(0, f"{_ROOT}")
             from empire.agent.llm.client import LLMClient
             from empire.agent.llm.agent import EmpireAgent
             ag = EmpireAgent(LLMClient())

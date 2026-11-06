@@ -18,13 +18,19 @@ import sqlite3
 import asyncio
 import tempfile
 from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 from typing import Dict, List, Optional, Any, Tuple, AsyncIterator
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from enum import Enum
 
 
-DATA_DIR = Path(os.getenv("EMPIRE_DATA_DIR", "/workspace/ai-empire/empire_data"))
+
+DATA_DIR = Path(os.getenv("EMPIRE_DATA_DIR", f"{_ROOT}/empire_data"))
 MAX_FILE_SIZE = int(os.getenv("EMPIRE_MAX_UPLOAD_BYTES", str(10 * 1024**3)))  # 10 GB
 CHUNK_SIZE = 4 * 1024 * 1024  # 4 MB chunks
 

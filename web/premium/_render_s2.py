@@ -1,8 +1,15 @@
 """Render screenshots of dados and memory pages with backend running."""
+from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 import asyncio, os, json, csv, subprocess, time
 from playwright.async_api import async_playwright
 
-TOKEN = "demo-token-for-render"
+
+TOKEN = "screenshot-fixture-not-a-real-token"
 TENANT = "default"
 
 async def shoot():
@@ -82,12 +89,12 @@ async def shoot():
                 ("memory.html", "memory"),
             ]:
                 page = await ctx.new_page()
-                await page.goto(f"file:///workspace/ai-empire/web/premium/{html}",
+                await page.goto(f"file://{_ROOT}/web/premium/{html}",
                                 wait_until="networkidle", timeout=15000)
                 await page.wait_for_timeout(2000)
                 await page.evaluate("() => new Promise(r => setTimeout(r, 1000))")
-                await page.screenshot(path=f"/workspace/ai-empire/web/premium/screenshot-{name}.png", full_page=True)
-                await page.screenshot(path=f"/workspace/ai-empire/web/premium/screenshot-{name}-vp.png", full_page=False)
+                await page.screenshot(path=f"{_ROOT}/web/premium/screenshot-{name}.png", full_page=True)
+                await page.screenshot(path=f"{_ROOT}/web/premium/screenshot-{name}-vp.png", full_page=False)
                 await page.close()
                 print(f"  {name}: done")
             await browser.close()

@@ -27,10 +27,15 @@ import hashlib
 import subprocess
 import urllib.request
 from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 from typing import Dict, List, Optional, Any, Set
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
-import yaml
+from empire import yaml_compat as yaml
 
 from empire.registry.sandbox import (
     validate_ast, run_in_sandbox, SandboxResult,
@@ -38,9 +43,10 @@ from empire.registry.sandbox import (
 )
 
 
+
 # Paths
-SKILLS_DIR = Path(os.getenv("EMPIRE_SKILLS_DIR", "/workspace/ai-empire/.skills"))
-INSTALLED_FILE = Path(os.getenv("EMPIRE_REGISTRY_FILE", "/workspace/ai-empire/empire_registry.yaml"))
+SKILLS_DIR = Path(os.getenv("EMPIRE_SKILLS_DIR", f"{_ROOT}/.skills"))
+INSTALLED_FILE = Path(os.getenv("EMPIRE_REGISTRY_FILE", f"{_ROOT}/empire_registry.yaml"))
 
 
 @dataclass
@@ -135,8 +141,11 @@ class SkillRegistry:
             path = Path(entry["path"])
             if not path.exists():
                 continue
+            manifest_path = self._manifest_path(path)
+            if manifest_path is None:
+                continue
             try:
-                manifest = SkillManifest.from_yaml(path / "skill.yaml")
+                manifest = SkillManifest.from_yaml(manifest_path)
                 manifest.source = entry.get("source", "")
                 manifest.installed_at = entry.get("installed_at", "")
                 manifest.hash = entry.get("hash", "")
@@ -171,31 +180,54 @@ class SkillRegistry:
         self.registry_file.parent.mkdir(parents=True, exist_ok=True)
         self.registry_file.write_text(yaml.safe_dump(data, allow_unicode=True))
 
+    def _manifest_path(self, entry: Path) -> Optional[Path]:
+        """Locate a skill's manifest.
+
+        Skills are shipped in two layouts: <skill>/skill.yaml and
+        <skill>/.skill/skill.yaml. Both must be discovered, otherwise most
+        skills silently vanish from the registry.
+        """
+        for cand in (entry / "skill.yaml", entry / ".skill" / "skill.yaml"):
+            if cand.exists():
+                return cand
+        return None
+
+    def _tools_dir(self, entry: Path) -> Optional[Path]:
+        """Locate a skill's tools directory (same two layouts)."""
+        for cand in (entry / "tools", entry / ".skill" / "tools"):
+            if cand.is_dir():
+                return cand
+        return None
+
     def _scan_builtins(self):
         """Scan .skills/ directory for built-in skills."""
         if not self.skills_dir.exists():
             return
         for entry in self.skills_dir.iterdir():
-            if entry.is_dir() and (entry / "skill.yaml").exists():
-                try:
-                    self.installed[entry.name] = self._build_installed(
-                        entry, source=f"builtin:{entry.name}"
-                    )
-                except Exception as e:
-                    print(f"[registry] failed to load builtin {entry.name}: {e}")
+            if not entry.is_dir() or entry.name.startswith("_"):
+                continue
+            if self._manifest_path(entry) is None:
+                continue
+            try:
+                self.installed[entry.name] = self._build_installed(
+                    entry, source=f"builtin:{entry.name}"
+                )
+            except Exception as e:
+                print(f"[registry] failed to load builtin {entry.name}: {e}")
 
     def _build_installed(self, path: Path, source: str) -> InstalledSkill:
-        manifest = SkillManifest.from_yaml(path / "skill.yaml")
+        manifest_path = self._manifest_path(path) or (path / "skill.yaml")
+        manifest = SkillManifest.from_yaml(manifest_path)
         manifest.source = source
         manifest.installed_at = manifest.installed_at or datetime.now(timezone.utc).isoformat()
-        manifest.hash = sha256_file(path / "skill.yaml")
+        manifest.hash = sha256_file(manifest_path)
         # Discover files (filter out sandbox artifacts like _runner.py and tool.py
         # and helper modules — files starting with _ are internal helpers, not tools)
         sandbox_artifacts = {"_runner.py", "tool.py", "__pycache__"}
+        tools_dir = self._tools_dir(path)
         tools = sorted(
-            p.name for p in (path / "tools").glob("*.py")
-            if (path / "tools").is_dir()
-            and p.name not in sandbox_artifacts
+            p.name for p in (tools_dir.glob("*.py") if tools_dir else [])
+            if p.name not in sandbox_artifacts
             and not p.name.startswith("_")
         )
         prompts = sorted(p.name for p in (path / "prompts").glob("*.md") if (path / "prompts").is_dir()) if (path / "prompts").is_dir() else []
@@ -218,22 +250,27 @@ class SkillRegistry:
         if not self.skills_dir.exists():
             return available
         for entry in self.skills_dir.iterdir():
-            if entry.is_dir() and (entry / "skill.yaml").exists():
-                if entry.name not in self.installed:
-                    try:
-                        m = SkillManifest.from_yaml(entry / "skill.yaml")
-                        available.append({"name": m.name, "version": m.version,
-                                          "description": m.description,
-                                          "path": str(entry)})
-                    except Exception:
-                        pass
+            if not entry.is_dir() or entry.name.startswith("_"):
+                continue
+            manifest_path = self._manifest_path(entry)
+            if manifest_path is None:
+                continue
+            if entry.name not in self.installed:
+                try:
+                    m = SkillManifest.from_yaml(manifest_path)
+                    available.append({"name": m.name, "version": m.version,
+                                      "description": m.description,
+                                      "path": str(entry)})
+                except Exception:
+                    pass
         return available
 
     def install_from_path(self, src: Path, source: str = "local") -> InstalledSkill:
         """Install a skill from a local directory."""
-        if not (src / "skill.yaml").exists():
+        manifest_path = self._manifest_path(src)
+        if manifest_path is None:
             raise ValueError(f"no skill.yaml found in {src}")
-        manifest = SkillManifest.from_yaml(src / "skill.yaml")
+        manifest = SkillManifest.from_yaml(manifest_path)
         dest = self.skills_dir / manifest.name
         # If src and dest are the same, skip copy
         if src.resolve() != dest.resolve():
@@ -420,7 +457,11 @@ class SkillRegistry:
         return True, "all self_tests passed (in-process browser profile)"
 
     def get_capability_summary(self) -> Dict[str, Any]:
-        """Return a summary of all capabilities for system prompt injection."""
+        """Return a summary of all capabilities for system prompt injection.
+
+        Tool names are reported without the .py suffix: the name the LLM
+        uses to call a tool is the bare function/file stem.
+        """
         tools = []
         prompts = []
         templates = []
@@ -429,7 +470,7 @@ class SkillRegistry:
             if not skill.enabled:
                 continue
             for tool in skill.tools:
-                tools.append({"name": tool, "skill": skill.manifest.name})
+                tools.append({"name": Path(tool).stem, "skill": skill.manifest.name})
             for prompt in skill.prompts:
                 prompts.append({"name": prompt, "skill": skill.manifest.name})
             for tmpl in skill.templates:
@@ -440,6 +481,8 @@ class SkillRegistry:
             "prompts": prompts,
             "templates": templates,
             "skills_active": [s.manifest.name for s in self.installed.values() if s.enabled],
+            "tool_count": len(tools),
+            "skill_count": len([s for s in self.installed.values() if s.enabled]),
         }
 
     def get_tool_code(self, tool_name: str) -> Optional[tuple[str, str, InstalledSkill]]:
@@ -447,9 +490,12 @@ class SkillRegistry:
         for skill in self.installed.values():
             if not skill.enabled:
                 continue
+            tools_dir = self._tools_dir(skill.path)
+            if tools_dir is None:
+                continue
             for tool in skill.tools:
                 if tool == tool_name or tool == f"{tool_name}.py":
-                    path = skill.path / "tools" / tool
+                    path = tools_dir / tool
                     if path.exists():
                         return path.read_text(), skill.manifest.name, skill
         return None

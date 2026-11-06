@@ -1,7 +1,14 @@
 """Social media backend — real platform APIs with browser-automation fallback."""
+from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 import os, sys, asyncio, importlib.util
+
 _s = importlib.util.spec_from_file_location(
-    "sm_api", "/workspace/ai-empire/.skills/_shared/api.py")
+    "sm_api", f"{_ROOT}/.skills/_shared/api.py")
 api = importlib.util.module_from_spec(_s); _s.loader.exec_module(api)
 
 ENDPOINTS = {
@@ -35,7 +42,7 @@ def token_for(platform):
 
 async def browser_fallback(action, params):
     """Post via the browser-automation skill when no API token exists."""
-    sys.path.insert(0, "/workspace/ai-empire")
+    sys.path.insert(0, f"{_ROOT}")
     try:
         from empire.browser.session import get_manager
     except ImportError:

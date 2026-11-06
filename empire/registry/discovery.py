@@ -46,7 +46,9 @@ def build_capability_prompt() -> str:
     """Build a system prompt section describing all capabilities."""
     caps = discover_all_capabilities()
 
-    if not caps["skills"]["active"] and not caps["mcps"]["mcps"] and not caps["forge"]["tools"]:
+    # caps["mcps"] is already the list of MCP summaries
+    mcp_list = caps.get("mcps") or []
+    if not caps["skills"]["active"] and not mcp_list and not caps["forge"]["tools"]:
         return ""
 
     lines = ["## CAPABILIDADES DISPONÍVEIS\n"]
@@ -58,17 +60,17 @@ def build_capability_prompt() -> str:
         lines.append("")
 
     if caps["skills"]["tools"]:
-        lines.append("### Tools de skills")
+        lines.append(f"### Tools de skills ({len(caps['skills']['tools'])})")
         for t in caps["skills"]["tools"]:
             lines.append(f"- `{t['name']}` (skill: {t['skill']})")
         lines.append("")
 
-    if caps["mcps"]["mcps"]:
+    if mcp_list:
         lines.append("### MCPs ativos")
-        for m in caps["mcps"]["mcps"]:
+        for m in mcp_list:
             status = "online" if m.get("online") else "offline"
             tools_list = ", ".join(m.get("tools", [])) or "(sem tools)"
-            lines.append(f"- `{m['name']}` [{status}] → tools: {tools_list}")
+            lines.append(f"- `{m.get('name')}` [{status}] → tools: {tools_list}")
         lines.append("")
 
     if caps["forge"]["tools"]:

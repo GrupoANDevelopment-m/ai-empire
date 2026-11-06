@@ -24,15 +24,21 @@ import subprocess
 import urllib.request
 import http.client
 from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 from typing import Dict, List, Optional, Any, Set
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
-import yaml
+from empire import yaml_compat as yaml
+
 
 
 # Paths
-MCPS_DIR = Path(os.getenv("EMPIRE_MCPS_DIR", "/workspace/ai-empire/empire/registry/mcps_data"))
-MCPS_REGISTRY = Path(os.getenv("EMPIRE_MCPS_REGISTRY", "/workspace/ai-empire/mcps_registry.yaml"))
+MCPS_DIR = Path(os.getenv("EMPIRE_MCPS_DIR", f"{_ROOT}/empire/registry/mcps_data"))
+MCPS_REGISTRY = Path(os.getenv("EMPIRE_MCPS_REGISTRY", f"{_ROOT}/mcps_registry.yaml"))
 
 
 @dataclass

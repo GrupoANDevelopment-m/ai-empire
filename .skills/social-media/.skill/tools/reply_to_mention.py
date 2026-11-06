@@ -1,4 +1,10 @@
 """reply_to_mention — real reply to a mention."""
+from pathlib import Path
+
+# Project root resolved from this file's location, so the code works
+# from any checkout path (not just /workspace/ai-empire).
+_ROOT = next(p for p in Path(__file__).resolve().parents
+             if (p / "empire").is_dir() and (p / ".skills").is_dir())
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import importlib.util
@@ -6,6 +12,7 @@ _pt = importlib.util.spec_from_file_location(
     "rm_pt", os.path.join(os.path.dirname(os.path.abspath(__file__)), "post_twitter.py"))
 _pt_m = importlib.util.module_from_spec(_pt); _pt.loader.exec_module(_pt_m)
 from _social import token_for
+
 
 
 async def reply_to_mention(mention_id: str, reply_text: str,
@@ -39,7 +46,7 @@ async def reply_to_mention(mention_id: str, reply_text: str,
         tok = token_for("instagram")["INSTAGRAM_TOKEN"]
         import importlib.util
         s = importlib.util.spec_from_file_location(
-            "sm_api9", "/workspace/ai-empire/.skills/_shared/api.py")
+            "sm_api9", f"{_ROOT}/.skills/_shared/api.py")
         m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
         r = await m.request("POST", f"https://graph.facebook.com/v19.0/{uid}/comments",
             json_body={"message": reply_text, "access_token": tok})
