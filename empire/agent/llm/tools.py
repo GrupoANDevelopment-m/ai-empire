@@ -257,7 +257,8 @@ async def run_tests(target: str = "all") -> str:
     except asyncio.TimeoutError:
         return "⏱️  Tests timed out after 5 minutes."
     except Exception as e:
-        return f"❌ Could not run tests: {e}\nMake sure you're in /workspace/ai-empire."
+        return (f"❌ Could not run tests: {e}\n"
+                f"Make sure you're in {PROJECT_ROOT}.")
 
     # Parse the summary
     import re

@@ -48,8 +48,11 @@ async def add_watermark(path: str, text: str = "CONFIDENTIAL", output_path: str 
         buf.seek(0)
         from pypdf import PdfReader as R2
         watermark = R2(buf).pages[0]
-        page.merge_page(watermark)
+        # Attach the page to the writer BEFORE merging: pypdf 6.10+ raises a
+        # DeprecationError when replace_contents() is called on a page that
+        # is not assigned to a writer (removed in pypdf 7.0).
         writer.add_page(page)
+        writer.pages[-1].merge_page(watermark)
 
     with open(out, "wb") as fh:
         writer.write(fh)
