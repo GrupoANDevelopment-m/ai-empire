@@ -174,6 +174,55 @@ paths:
         '503':
           description: No LLM available
   
+  /api/chat/stream:
+    post:
+      summary: Stream one agent turn as Server-Sent Events
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: SSE stream of agent events (text, tool_call, tool_result, done, error)
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '503':
+          description: Agent runtime unavailable
+
+  /api/tools/call:
+    post:
+      summary: Execute one skill tool directly
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: Namespaced tool name, e.g. web_search__search_news
+                arguments:
+                  type: object
+                  description: Tool arguments
+                session:
+                  type: string
+                  default: default
+      responses:
+        '200':
+          description: The tool's real result
+        '400':
+          description: Unknown or ambiguous tool name
+        '404':
+          description: Tool not found
+        '503':
+          description: Agent runtime unavailable
+
   /api/security/sanitize:
     post:
       summary: Sanitize HTML using bleach

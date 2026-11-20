@@ -93,24 +93,38 @@ class EmpireClient:
         """Login and return access token."""
         data = await self._request("POST", "/api/auth/login", json={"email": email, "password": password})
         self.token = data["access_token"]
+        # The client may already be open: refresh the Authorization header,
+        # otherwise every request after login goes out unauthenticated.
+        if self._client is not None:
+            self._client.headers["Authorization"] = f"Bearer {self.token}"
         return self.token
     
     async def health(self) -> dict:
         return await self._request("GET", "/health")
     
     async def list_skills(self) -> list:
+        """Active skill names."""
         data = await self._request("GET", "/api/capabilities")
-        return data.get("skills", [])
-    
+        skills = data.get("skills") or {}
+        if isinstance(skills, dict):
+            return skills.get("active", [])
+        return skills
+
     async def list_tools(self) -> list:
+        """Every tool the agent can call."""
         data = await self._request("GET", "/api/capabilities")
+        skills = data.get("skills") or {}
+        if isinstance(skills, dict):
+            return skills.get("tools", [])
         return data.get("tools", [])
     
     async def chat(self, message: str, session_id: Optional[str] = None) -> dict:
-        return await self._request(
-            "POST", "/api/chat",
-            json={"message": message, "session_id": session_id},
-        )
+        payload = {"message": message}
+        # Only send the session when one was given: the API declares it as
+        # a string, and an explicit null fails validation with 422.
+        if session_id:
+            payload["session"] = session_id
+        return await self._request("POST", "/api/chat", json=payload)
     
     async def chat_stream(self, message: str, session_id: Optional[str] = None) -> AsyncIterator[str]:
         """Stream chat response chunks."""
@@ -120,9 +134,11 @@ class EmpireClient:
                 timeout=self.timeout,
                 headers=self._headers(),
             )
+        payload = {"message": message, "stream": True}
+        if session_id:
+            payload["session"] = session_id
         async with self._client.stream(
-            "POST", "/api/chat/stream",
-            json={"message": message, "session_id": session_id, "stream": True},
+            "POST", "/api/chat/stream", json=payload,
         ) as r:
             async for line in r.aiter_lines():
                 if line.startswith("data: "):
@@ -135,9 +151,11 @@ class EmpireClient:
         )
     
     async def sanitize(self, text: str) -> str:
-        """Sanitize HTML using bleach."""
-        data = await self._request("POST", "/api/security/sanitize", json={"text": text})
-        return data["sanitized"]
+        """Sanitize HTML using bleach (the server-side XSS guard)."""
+        data = await self._request("POST", "/api/security/sanitize",
+                                   json={"text": text})
+        # The endpoint returns both keys; accept either.
+        return data.get("sanitized", data.get("html", ""))
     
     async def browser_sessions(self) -> list:
         return await self._request("GET", "/api/browser/sessions")

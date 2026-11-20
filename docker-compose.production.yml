@@ -16,6 +16,25 @@ x-logging: &default-logging
     max-file: "5"
     labels: "service,environment"
 
+# Shared environment for every service that talks to the data stores.
+# Declared as an extension block so the anchor is defined before use.
+x-api-environment: &api-environment
+  ENVIRONMENT: production
+  LOG_LEVEL: info
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+  POSTGRES_URL: postgresql://empire:${POSTGRES_PASSWORD}@postgres:5432/empire
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+  NVIDIA_NIM_API_KEY: ${NVIDIA_NIM_API_KEY:-}
+  NVIDIA_NIM_BASE_URL: ${NVIDIA_NIM_BASE_URL:-https://integrate.api.nvidia.com/v1}
+  MUAPI_API_KEY: ${MUAPI_API_KEY:-}
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_SERVICE_NAME: empire-api
+
+x-api-volumes: &api-volumes
+  - empire-data:/app/data
+  - empire-cache:/app/.cache
+  - empire-browser:/app/data/browser_profiles
+
 services:
   # ==========================================================================
   # Core API
@@ -29,21 +48,8 @@ services:
     restart: unless-stopped
     labels:
       <<: *common-labels
-    environment:
-      ENVIRONMENT: production
-      LOG_LEVEL: info
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
-      POSTGRES_URL: postgresql://empire:${POSTGRES_PASSWORD}@postgres:5432/empire
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-      NVIDIA_NIM_API_KEY: ${NVIDIA_NIM_API_KEY:-}
-      NVIDIA_NIM_BASE_URL: ${NVIDIA_NIM_BASE_URL:-https://integrate.api.nvidia.com/v1}
-      MUAPI_API_KEY: ${MUAPI_API_KEY:-}
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      OTEL_SERVICE_NAME: empire-api
-    volumes:
-      - empire-data:/app/data
-      - empire-cache:/app/.cache
-      - empire-browser:/app/data/browser_profiles
+    environment: *api-environment
+    volumes: *api-volumes
     ports:
       - "8080:8080"
     depends_on:
@@ -80,7 +86,7 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "empire.worker"]
     environment:
-      <<: [*api-environment]
+      <<: *api-environment
     volumes: *api-volumes
     depends_on:
       postgres: { condition: service_healthy }
@@ -101,7 +107,8 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "empire.scheduler"]
     environment:
-      <<: [*api-environment]
+      <<: *api-environment
+    volumes: *api-volumes
     depends_on: [postgres, redis]
     networks: [empire-internal]
     deploy:

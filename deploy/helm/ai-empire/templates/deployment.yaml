@@ -93,5 +93,5 @@ spec:
               podAffinityTerm:
                 labelSelector:
                   matchLabels:
-                    {{- include "ai-empire.selectorLabels" . | nindent 12 }}
+                    {{- include "ai-empire.selectorLabels" . | nindent 20 }}
                 topologyKey: kubernetes.io/hostname

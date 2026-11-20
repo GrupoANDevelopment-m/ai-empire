@@ -124,3 +124,8 @@ data/cache/
 # local verification clone (sparse checkout used for CI checks)
 .verify_clone/
 .verify_clone*/
+
+# helm dependency archives (fetched with `helm dependency build`)
+deploy/helm/ai-empire/charts/
+# local tooling binaries downloaded for validation
+.tools/

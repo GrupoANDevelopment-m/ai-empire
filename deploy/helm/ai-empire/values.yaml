@@ -113,19 +113,6 @@ redis:
   replica:
     replicaCount: 2
 
-grafana:
-  enabled: true
-  adminPassword: change-me
-  persistence:
-    enabled: true
-    size: 10Gi
-  sidecar:
-    dashboards:
-      enabled: true
-      searchNamespace: true
-    datasources:
-      enabled: true
-
 observability:
   prometheus:
     enabled: true
@@ -141,6 +128,10 @@ observability:
     storage: 30Gi
 
 # LLM providers
+# JWT signing secret. Leave empty to generate a random one per install.
+jwt:
+  secret: ""
+
 llm:
   ollama:
     enabled: false

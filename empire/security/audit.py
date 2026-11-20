@@ -1,7 +1,7 @@
 """
 Audit logging — every privileged action is logged for compliance.
 
-Writes JSON-lines to /var/log/ai-empire/audit.log (or Redis stream).
+Writes JSON-lines to $EMPIRE_AUDIT_LOG (default: <project>/data/logs/audit.log).
 Format:
   {"ts": "...", "tenant": "...", "actor": "...", "role": "...",
    "action": "send_outreach", "target": "...", "ok": true,
@@ -58,8 +58,17 @@ class AuditLogger:
 
     Enable via PII_AUDIT_LOG=true (default).
     """
-    def __init__(self, path: str = "/var/log/ai-empire/audit.log",
-                 also_stderr: bool = True):
+    def __init__(self, path: str = None, also_stderr: bool = True):
+        # The log location is configurable: the default is a writable
+        # project-local path so the logger works for a non-root user and
+        # from any checkout directory.
+        if path is None:
+            path = os.getenv("EMPIRE_AUDIT_LOG")
+        if path is None:
+            root = next((p for p in Path(__file__).resolve().parents
+                         if (p / "empire").is_dir() and (p / ".skills").is_dir()),
+                        Path.cwd())
+            path = str(root / "data" / "logs" / "audit.log")
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.also_stderr = also_stderr

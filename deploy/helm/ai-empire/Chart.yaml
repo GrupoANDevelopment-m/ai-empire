@@ -18,6 +18,13 @@ keywords:
   - self-hosted
   - langgraph
   - mcp
+# NOTE: Grafana is intentionally NOT a subchart dependency here. The
+# Bitnami grafana chart bundles an older bitnami/common library whose
+# template API differs from the one postgresql 15.x and redis 18.x
+# expect; Helm merges all chart templates into one namespace, so the two
+# versions collide and the chart fails to render. Grafana is installed
+# separately (the repository ships the provisioning under
+# observability/grafana/) and the chart's ServiceMonitor feeds it.
 dependencies:
   - name: postgresql
     version: "15.x.x"
@@ -27,7 +34,3 @@ dependencies:
     version: "18.x.x"
     repository: https://charts.bitnami.com/bitnami
     condition: redis.enabled
-  - name: grafana
-    version: "7.x.x"
-    repository: https://charts.bitnami.com/bitnami
-    condition: grafana.enabled

@@ -59,7 +59,7 @@ from fastapi import (
     HTTPException, Query, Depends, Header, Request, Response,
     BackgroundTasks,
 )
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
@@ -841,7 +841,11 @@ async def sanitize_html(req: Request, user=Depends(get_current_user)):
         data = await req.json()
     except Exception:
         raise HTTPException(400, "invalid JSON")
-    html = data.get("html", "")
+    # Both "text" and "html" are accepted: the OpenAPI spec publishes
+    # "text" and existing clients send "html".
+    html = data.get("html") or data.get("text") or ""
+    if not isinstance(html, str):
+        raise HTTPException(400, "html/text must be a string")
     # Conservative allowlist — most tags, no scripts/styles/forms/iframes
     allowed_tags = [
         "a", "b", "i", "em", "strong", "p", "br", "hr", "ul", "ol", "li",
@@ -854,6 +858,15 @@ async def sanitize_html(req: Request, user=Depends(get_current_user)):
         "span": ["class"],
         "div": ["class"],
     }
+    # Bleach strips disallowed tags but keeps their text, so `<script>alert(1)
+    # </script>` would render as the literal "alert(1)". Remove the whole
+    # element — including its content — before handing the HTML to bleach.
+    html = re.sub(r"<\s*(script|style|iframe|object|embed)\b[^>]*>.*?"
+                  r"<\s*/\s*\1\s*>", "", html,
+                  flags=re.IGNORECASE | re.DOTALL)
+    # Unclosed script/style tags: drop the rest of the fragment.
+    html = re.sub(r"<\s*(script|style|iframe|object|embed)\b[^>]*>.*",
+                  "", html, flags=re.IGNORECASE | re.DOTALL)
     clean = bleach.clean(
         html, tags=allowed_tags, attributes=allowed_attrs,
         protocols=["http", "https", "mailto"], strip=True,
@@ -865,8 +878,8 @@ async def sanitize_html(req: Request, user=Depends(get_current_user)):
     audit("security.sanitize", actor=user["email"], tenant=user["tenant"],
           summary=f"sanitized {len(html)} -> {len(clean)} bytes",
           metadata={"engine": "bleach", "version": bleach.__version__})
-    return {"ok": True, "html": clean, "engine": "bleach",
-            "version": bleach.__version__,
+    return {"ok": True, "html": clean, "sanitized": clean,
+            "engine": "bleach", "version": bleach.__version__,
             "original_length": len(html), "sanitized_length": len(clean)}
 
 
@@ -1051,6 +1064,100 @@ async def chat(req: ChatRequest, request: Request, user=Depends(get_current_user
             "tools": len(caps.get("skills", {}).get("tools", [])),
         },
     }
+
+
+# ─── Direct tool invocation ──────────────────────────────────────────────────
+
+class ToolCallRequest(BaseModel):
+    name: str
+    arguments: Dict[str, Any] = {}
+    session: str = "default"
+
+
+@app.post("/api/tools/call")
+async def tools_call(req: ToolCallRequest, request: Request,
+                     user=Depends(get_current_user)):
+    """Execute one skill tool directly and return its real result.
+
+    The same dynamic registry the agent uses is applied here, so every
+    tool the agent advertises can also be invoked over HTTP. The call runs
+    inside the caller's tenant context and is audited.
+    """
+    if not req.name or not req.name.strip():
+        raise HTTPException(400, "name cannot be empty")
+    try:
+        from empire.agent.llm.dynamic_tools import resolve_tool_call
+        from empire.agent.llm.tools import execute_tool
+    except ImportError as e:
+        raise HTTPException(503, f"agent runtime unavailable: {e}")
+
+    info = resolve_tool_call(req.name)
+    if info is None:
+        raise HTTPException(404, f"unknown tool: {req.name}")
+    if info.get("error"):
+        raise HTTPException(400, info["error"])
+
+    audit("tool.call", actor=user["email"], tenant=user["tenant"],
+          summary=req.name,
+          metadata={"arguments": list((req.arguments or {}).keys())})
+
+    from empire.agent.llm.tenant import set_current_tenant
+    try:
+        set_current_tenant(user["tenant"])
+    except ValueError:
+        pass
+
+    try:
+        raw = await execute_tool(req.name, req.arguments or {})
+    except Exception as e:
+        raise HTTPException(500, f"tool failed: {type(e).__name__}: {e}")
+
+    try:
+        payload = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError):
+        payload = {"ok": False, "error": str(raw)[:300]}
+    return {"tool": req.name, "tenant": user["tenant"], "result": payload}
+
+
+# ─── Server-sent events chat ─────────────────────────────────────────────────
+
+@app.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest, request: Request,
+                      user=Depends(get_current_user)):
+    """Stream one agent turn as Server-Sent Events.
+
+    Each event is a JSON object with a "type" field: text, tool_call,
+    tool_result, done or error. This is the REST counterpart of the
+    /ws/agent WebSocket.
+    """
+    if not req.message or not req.message.strip():
+        raise HTTPException(400, "message cannot be empty")
+    if len(req.message) > 8000:
+        raise HTTPException(400, "message too long (max 8000 chars)")
+
+    audit("chat.message", actor=user["email"], tenant=user["tenant"],
+          summary=req.message[:200],
+          metadata={"session": req.session, "via": "sse"})
+
+    try:
+        from empire.agent.llm import EmpireAgent
+    except ImportError as e:
+        raise HTTPException(503, f"agent runtime unavailable: {e}")
+
+    agent = EmpireAgent(tenant=user["tenant"])
+
+    async def event_stream():
+        try:
+            async for event in agent.stream(req.message, session=req.session):
+                yield f"data: {json.dumps(event, default=str)}\n\n"
+        except Exception as e:                     # noqa: BLE001
+            payload = {"type": "error",
+                       "text": f"{type(e).__name__}: {e}"}
+            yield f"data: {json.dumps(payload)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})
 
 
 # ─── WebSocket ─────────────────────────────────────────────────────────────
