@@ -401,7 +401,10 @@ jobs:
         with:
           version: v3.16.3
       - name: Fetch chart dependencies
-        run: helm dependency build deploy/helm/ai-empire/
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update bitnami
+          helm dependency build deploy/helm/ai-empire/
       - name: Lint
         run: helm lint deploy/helm/ai-empire/
       - name: Render and validate the manifests
