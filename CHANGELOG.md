@@ -5,6 +5,57 @@ All notable changes to AI Empire will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.1] - 2026-11-21
+
+### Added
+- `POST /api/tools/call` — executes a skill tool through the same dynamic
+  registry the agent uses, inside the caller's tenant, with an audit entry.
+- `POST /api/chat/stream` — one agent turn as Server-Sent Events, the REST
+  counterpart of the `/ws/agent` WebSocket.
+- `empire/worker.py` — publishes queued posts through the real platform
+  APIs and retries with the actual error, bounded by `MAX_ATTEMPTS`.
+- `empire/scheduler.py` — runs registered jobs on an interval or a
+  five-field cron expression and records each run's real status and error.
+- `scripts/backup.py` — real `pg_dump` and tar backups with pruning.
+- `install_wheels.py` — a pip-free installer that resolves version ranges,
+  propagates exact pins and caches wheels.
+- `requirements-runtime.txt` — the resolved runtime dependency set.
+- Verification harnesses: `tools_audit.py`, `tools_fake_success.py`,
+  `tools_execute.py`, `tools_verify_single_exec.py`,
+  `tools_verify_platform.py`, `tools_debug_react.py`.
+- `benchmarks/run_load_test.py` — records a real load test with the
+  environment and an explicit note that it is a local run.
+
+### Fixed
+- `execute_tool()` resolves the dynamic skill registry, so all 133
+  advertised tools are executable (it previously knew 10).
+- The tool discovery registry is cached by file mtime: it re-executed all
+  133 modules on every call (0.495s → 0.0000s per lookup).
+- An empty LLM completion is reported as an error instead of ending the
+  turn with silence; an unusable payload now fails loudly.
+- `httpx_compat` raises on transport failure instead of returning a
+  status-0 response that callers could mistake for a real reply.
+- `extract_key_points` falls back to TF-IDF when the LLM returns nothing
+  usable, and labels which method produced the points.
+- `web-search` falls back to Bing when DuckDuckGo fails at the transport
+  level, not only when it returns an unparseable page.
+- The `crm` skill manifest is valid YAML; an unquoted `*.salesforce.com`
+  was parsed as an alias and the whole skill failed to load.
+- 33 files no longer hardcode `/workspace/ai-empire`; the project root is
+  resolved from each file's own location, so any checkout path works.
+- `docker-compose.production.yml` parses: the `api-environment` and
+  `api-volumes` anchors were referenced but never defined.
+- The Helm chart renders: the secret template dereferenced a missing
+  `.Values.jwt`, the grafana subchart collided with postgresql/redis over
+  the bitnami/common library, and the pod anti-affinity labels were
+  indented with `nindent 12` instead of 20.
+- `pdf/add_watermark` attaches the page to the writer before merging, as
+  pypdf 6.10+ requires.
+- The Python SDK refreshes the Authorization header after login, reads the
+  real `/api/capabilities` shape and sends a valid session value.
+- The sanitizer removes script/style/iframe elements together with their
+  content instead of leaving the script body as visible text.
+
 ## [4.0.0] - 2026-10-12
 
 ### Added
